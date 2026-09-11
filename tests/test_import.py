@@ -336,6 +336,84 @@ def test_a_card_punctuated_its_own_way_is_still_the_lesson(
     assert "addNote" not in anki.actions()
 
 
+def test_a_card_is_recognised_by_the_recording_it_plays(
+    markdown_lesson: Path, stub, run_cli
+) -> None:
+    """The recording is the corpus's own, so the name in the field names the lesson.
+
+    A card may be worded quite differently from the lesson's own text -- a
+    hand-made one often is -- and still be that lesson's card: the dialogue
+    recording it plays is the corpus's file, and no two lessons share one.
+    """
+    anki = stub(
+        existing(
+            note_type="Cloze",
+            fields={"Sentences": "A: Something like that. B: Close enough.", "TTS": f"[sound:{AUDIO}]"},
+        )
+    )
+
+    result = imported(markdown_lesson, anki, run_cli, input="s\n")
+
+    assert result.returncode == 0, result.stderr
+    assert "already in the collection" in result.stdout
+    assert "found by its dialogue recording" in result.stdout
+    assert "addNote" not in anki.actions()
+
+
+def test_a_card_playing_another_lessons_recording_is_not_this_lesson(
+    markdown_lesson: Path, stub, run_cli
+) -> None:
+    """The recording names the lesson: somebody else's is somebody else's."""
+    anki = stub(
+        existing(
+            note_type="Cloze",
+            fields={"Sentences": "A: Something else.", "TTS": "[sound:englishpod_B0001dg.mp3]"},
+        )
+    )
+
+    result = imported(markdown_lesson, anki, run_cli)
+
+    assert result.returncode == 0, result.stderr
+    assert len(anki.sent("addNote")) == 1
+
+
+def test_a_card_that_spells_out_what_the_corpus_printed_as_an_entity_is_still_the_lesson(
+    markdown_lesson: Path, stub, run_cli
+) -> None:
+    """One lesson's text layer prints `&quot;`, which a card ends up escaping twice.
+
+    A card made from the same dialogue with the character itself is not a
+    different lesson because of it.
+    """
+    lesson = markdown_lesson / "englishpod_D0108.md"
+    lesson.write_text(lesson.read_text().replace("Morning, Ed.", "Morning, &quot;Ed.&quot;"))
+    anki = stub(
+        existing(
+            note_type="Cloze",
+            fields={"Sentences": HAND_BUILT.replace("Morning, Ed.", 'Morning, "Ed."')},
+        )
+    )
+
+    result = imported(markdown_lesson, anki, run_cli, "--existing", "skip")
+
+    assert result.returncode == 0, result.stderr
+    assert "already in the collection" in result.stdout
+    assert "addNote" not in anki.actions()
+
+
+def test_a_note_that_vanishes_between_the_search_and_the_read_is_passed_over(
+    markdown_lesson: Path, stub, run_cli
+) -> None:
+    """AnkiConnect answers `{}` for a note that is gone; the run reads past it."""
+    anki = stub(existing(tags=("englishpod::C0108",)), vanished=[1603242736999])
+
+    result = imported(markdown_lesson, anki, run_cli, "--existing", "skip")
+
+    assert result.returncode == 0, result.stderr
+    assert "already in the collection" in result.stdout
+    assert "addNote" not in anki.actions()
+
+
 def test_a_card_holding_another_lesson_is_not_this_lesson(
     markdown_lesson: Path, stub, run_cli
 ) -> None:

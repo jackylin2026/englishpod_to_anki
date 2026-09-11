@@ -58,6 +58,7 @@ class StubAnki:
         model_names: tuple[str, ...] = (),
         note_types: Mapping[str, Mapping[str, Any]] | None = None,
         notes: Sequence[Mapping[str, Any]] = (),
+        vanished: Sequence[int] = (),
     ) -> None:
         self.deck_names = list(deck_names)
         # What the collection's note types hold, by name, each as
@@ -71,6 +72,10 @@ class StubAnki:
         self.model_names: list[str] = list(model_names) or list(self.note_types)
         # The notes the collection already holds, made with `existing()`.
         self.notes: list[dict[str, Any]] = [dict(note) for note in notes]
+        # Ids a search finds that are gone by the time the run reads them: a
+        # note deleted or synced away between the two, which is what the real
+        # AnkiConnect answers an empty object for.
+        self.vanished = list(vanished)
         self.requests: list[dict[str, Any]] = []
         self.refusals: dict[str, str] = {}
         self.note_id = 1788443524727
@@ -91,6 +96,9 @@ class StubAnki:
     def sent(self, action: str) -> list[dict[str, Any]]:
         """Every request the tool sent for one action, in the order it sent them."""
         return [request["params"] for request in self.requests if request["action"] == action]
+
+    def holds(self, note_id: int) -> bool:
+        return any(note["noteId"] == note_id for note in self.notes)
 
     def note(self, note_id: int) -> dict[str, Any]:
         """One note the collection holds, as it stands now."""
@@ -119,9 +127,10 @@ class StubAnki:
         if action == "modelTemplates":
             return self._note_type(params["modelName"])["templates"]
         if action == "findNotes":
-            return [note["noteId"] for note in self.notes if note["deck"] == _deck(params["query"])]
+            in_deck = [note["noteId"] for note in self.notes if note["deck"] == _deck(params["query"])]
+            return in_deck + self.vanished
         if action == "notesInfo":
-            return [self._info(note_id) for note_id in params["notes"]]
+            return [self._info(note_id) if self.holds(note_id) else {} for note_id in params["notes"]]
         if action == "updateNoteFields":
             self._update(params["note"])
             return None

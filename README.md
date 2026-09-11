@@ -213,13 +213,16 @@ modes nothing is asked, so a scripted run never waits on a prompt it cannot
 answer. A run with nobody to answer and no flag says what it was asked and what
 to pass, rather than hanging on the question.
 
-A lesson counts as already there in two ways. The deck holds a note the tool
-made for it — one carrying the `englishpod::C0108` tag — and that is the note
-its identity names. Failing that, the deck holds a note of *any* note type whose
-dialogue is the lesson's own words, which is how cards made by hand before this
-tool existed are recognised: their blanks, their line breaks and their
-punctuation are their maker's and their note carries no tag, but the dialogue is
-the lesson's own. Replacing one of those
+A lesson counts as already there in three ways, looked for in this order. The
+deck holds a note the tool made for it — one carrying the `englishpod::C0108`
+tag — and that is the note its identity names. Failing that, the deck holds a
+note that plays the lesson's dialogue recording; the audio is attached under the
+filename the corpus gave it, so `[sound:englishpod_D0108dg.mp3]` names the
+lesson exactly, whatever the card around it says. Failing that, the deck holds a
+note of *any* note type whose dialogue is the lesson's own words — which is how
+cards made by hand before this tool existed are recognised when they play no
+recording: their blanks, line breaks and punctuation are their maker's and their
+note carries no tag, but the dialogue is the lesson's own. Replacing one of those
 writes the card's content into the note that is there, keeping its note type,
 its scheduling and its review history. If that note type would not render the
 card — a field it lacks, a side that hides the glossary — the lesson is reported

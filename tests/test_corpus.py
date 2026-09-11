@@ -231,6 +231,31 @@ def test_the_answer_for_every_lesson_left_can_be_replace(corpus, stub, run_cli) 
     assert "import: 4 lessons: 2 refreshed, 2 skipped" in result.stderr
 
 
+def test_a_note_whose_tag_names_another_code_is_still_found_by_its_dialogue(
+    corpus: Path, stub, run_cli
+) -> None:
+    """A lesson whose code changed under it keeps the note it already has.
+
+    The tag carries the code a lesson had when its note was made. A lesson
+    re-read from a different document can come out under another code, and the
+    note it already has is still its own note.
+    """
+    anki = stub(
+        existing(
+            tags=("englishpod::C0110",),
+            fields={
+                "Sentences": "A: Did you book the room for the rehearsal? "
+                "B: I booked it, but the piano is out of tune."
+            },
+        )
+    )
+
+    result = run_cli("import", corpus, "--anki-url", anki.url, "--existing", "skip")
+
+    assert result.returncode == 0, result.stderr
+    assert "B0110: already in the collection" in result.stdout
+
+
 def test_a_skipped_lesson_is_never_sent_to_anki(corpus: Path, anki, run_cli) -> None:
     """A lesson the tool declined to build leaves no trace in the collection."""
     result = run_cli("import", corpus, "--anki-url", anki.url)

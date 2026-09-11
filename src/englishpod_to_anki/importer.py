@@ -30,9 +30,11 @@ from .card import (
     FIELDS,
     FRONT_TEMPLATE,
     SENTENCES,
+    TTS,
     Note,
     design_differences,
     plain_dialogue,
+    recordings,
 )
 from .lesson import LessonError
 
@@ -50,8 +52,9 @@ IMPORTED, REFRESHED, LEFT = "imported", "refreshed", "left"
 IDENTITY = "englishpod::"
 
 # How a note already in the collection was recognised as a lesson's: by the tag
-# a note the tool made carries, or by the dialogue a note made by hand holds.
-BY_TAG, BY_DIALOGUE = "its tag", "its dialogue"
+# a note the tool made carries, by the dialogue recording it plays, or by the
+# words of the dialogue a note made by hand holds.
+BY_TAG, BY_RECORDING, BY_DIALOGUE = "its tag", "its dialogue recording", "its dialogue"
 
 
 class Unanswered(Exception):
@@ -93,6 +96,7 @@ class Importer:
         self.many = many
         self.decided: str | None = None
         self.by_code: dict[str, list[Present]] = {}
+        self.by_recording: dict[str, Present] = {}
         self.by_dialogue: dict[str, Present] = {}
         self.ready = False
 
@@ -148,28 +152,40 @@ class Importer:
         )
 
     def _read(self, deck: str) -> None:
-        """The lessons the collection already holds, by tag and by dialogue.
+        """The lessons the collection already holds, by tag, recording and dialogue.
 
-        A note the tool made carries the lesson's code in its tag. A note made
-        by hand, or by an earlier program, carries nothing that can be searched
-        for, and is recognised by the dialogue it holds instead: the lesson's
-        own words, whatever its maker chose to blank.
+        A note the tool made carries the lesson's code in its tag. One made by
+        hand, or by an earlier program, carries nothing that can be searched
+        for, and is recognised by what it holds instead: the dialogue recording
+        it plays, which is the corpus's own file, and the words of the dialogue
+        itself, whatever its maker chose to blank and punctuate.
         """
         for info in self.anki.notes_info(self.anki.find_notes(f'deck:"{deck}"')):
+            if not info:
+                # A note that was there when the deck was searched and is gone
+                # by the time it is read. AnkiConnect answers an empty object
+                # for it, which says nothing rather than not saying it.
+                continue
             if code := _code_of(info["tags"]):
                 # A tag is the note's identity, so two notes carrying one is a
                 # contradiction to report rather than one of them to pick.
                 self.by_code.setdefault(code, []).append(_present(info, BY_TAG))
-            elif dialogue := plain_dialogue(_sentences(info)):
+            # A note is read for the other two as well, tagged or not: the code
+            # in a tag is the one the lesson had when the note was made, and a
+            # lesson re-read from another document can come out under another.
+            for name in recordings(_field(info, TTS)):
+                self.by_recording.setdefault(name, _present(info, BY_RECORDING))
+            if dialogue := plain_dialogue(_field(info, SENTENCES)):
                 self.by_dialogue.setdefault(dialogue, _present(info, BY_DIALOGUE))
 
     def _present(self, note: Note) -> Present | None:
         """The note the collection holds for a lesson, if it holds one.
 
-        The lesson's tag is looked for first: a note the tool made is known by
-        it. A note the tool did not make carries no such tag and is found by the
-        dialogue it holds -- the lesson's words, in the order the lesson says
-        them, whichever words its maker blanked.
+        The lesson's tag is looked for first, since a note the tool made is
+        known by it. Then the recording the note plays, which is the corpus's
+        own file and names the lesson exactly. Then the dialogue itself: the
+        lesson's words, in the order the lesson says them, whichever words the
+        note's maker blanked and however they punctuated them.
         """
         if tagged := self.by_code.get(note.code):
             if len(tagged) > 1:
@@ -179,6 +195,8 @@ class Importer:
                     "guess; delete the ones you do not want in Anki, then run import again"
                 )
             return tagged[0]
+        if recorded := self.by_recording.get(note.audio.name):
+            return recorded
         return self.by_dialogue.get(plain_dialogue(note.fields[SENTENCES]))
 
     def _answer(self, note: Note, present: Present) -> str:
@@ -303,9 +321,9 @@ def _present(info: Mapping[str, Any], by: str) -> Present:
     return Present(note_id=info["noteId"], note_type=info["modelName"], by=by)
 
 
-def _sentences(info: Mapping[str, Any]) -> str:
-    """The dialogue a note holds, as the collection reports its fields."""
-    return info["fields"].get(SENTENCES, {}).get("value", "")
+def _field(info: Mapping[str, Any], name: str) -> str:
+    """What one field of a note holds, as the collection reports its fields."""
+    return info["fields"].get(name, {}).get("value", "")
 
 
 def _code_of(tags: Sequence[str]) -> str | None:

@@ -89,7 +89,7 @@ The tag `englishpod::C0108` a note is born with, derived from its lesson code, s
 _Avoid_: note id, guid, key
 
 **Existing note**:
-The note the collection already holds for a lesson: one carrying the lesson's `englishpod::` tag, or one whose dialogue is the lesson's own words, whichever the deck is read as holding. What is done about it — left exactly as it is, or replaced — is the learner's answer rather than the tool's.
+The note the collection already holds for a lesson: one carrying the lesson's `englishpod::` tag, one playing the lesson's dialogue recording, or one whose dialogue is the lesson's own words — found in that order, the first two naming the lesson exactly and the third likening it. What is done about it — left exactly as it is, or replaced — is the learner's answer rather than the tool's.
 _Avoid_: duplicate, old card
 
 **Replace**:

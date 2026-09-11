@@ -35,7 +35,8 @@ TAG = "englishpod::"
 # `Word Family` are carried empty: the design has them, and filling them later
 # should not be a schema change.
 SENTENCES = "Sentences"
-FIELDS = (SENTENCES, "Phonetic symbols", "Words", "Synonym", "Word Family", "TTS")
+TTS = "TTS"
+FIELDS = (SENTENCES, "Phonetic symbols", "Words", "Synonym", "Word Family", TTS)
 
 # The dialogue breaks where the page broke: a paragraph break is a newline
 # before the break, an intra-paragraph wrap a space before it.
@@ -84,6 +85,12 @@ CLOZE = re.compile(r"\{\{c\d+::(.*?)(?:::[^{}]*)?\}\}")
 MARKUP = re.compile(r"<[^>]*>")
 SPACE = re.compile(r"\s+")
 PUNCTUATION = re.compile(r"\W+")
+
+# A card plays its dialogue through the TTS field, which holds a reference to
+# the recording as `[sound:name.mp3]`. The file is attached under the name the
+# corpus gave it, so the field names the lesson's dialogue as surely as the code
+# inside the PDF does -- and no two lessons were recorded into one file.
+SOUND = re.compile(r"\[sound:([^\]]+)\]")
 
 VOWELS = "aeiou"
 
@@ -146,7 +153,7 @@ def build_note(lesson_dir: Path) -> Note:
             "Words": glossary(lesson),
             "Synonym": "",
             "Word Family": "",
-            "TTS": f"[sound:{audio.name}]",
+            TTS: f"[sound:{audio.name}]",
         },
         audio=audio,
         unmatched_terms=blanked.unmatched,
@@ -176,9 +183,27 @@ def plain_dialogue(field: str) -> str:
     filled = CLOZE.sub(r"\1", field)
     words = [
         PUNCTUATION.sub("", word)
-        for word in SPACE.sub(" ", unescape(MARKUP.sub(" ", filled))).split()
+        for word in SPACE.sub(" ", _unescaped(MARKUP.sub(" ", filled))).split()
     ]
     return " ".join(word for word in words if word)
+
+
+def recordings(field: str) -> tuple[str, ...]:
+    """The recordings a card plays, by the filenames it was given them under."""
+    return tuple(SOUND.findall(field))
+
+
+def _unescaped(text: str) -> str:
+    """A field's text with its HTML entities resolved, as far as they go.
+
+    Once is not always enough. A lesson whose text layer prints `&quot;` reaches
+    its card as `&amp;quot;`, since the field escapes what the lesson already
+    escaped; a card made by hand from the same dialogue holds the character
+    itself. Both are the same words, so both are read back to them.
+    """
+    while (once := unescape(text)) != text:
+        text = once
+    return text
 
 
 def design_differences(
