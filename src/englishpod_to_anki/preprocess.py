@@ -135,13 +135,27 @@ def _lesson_beside(lesson_dir: Path, pdf: Path) -> list[Row]:
     The lesson is looked for by the number its directory is named with, which is
     where the lesson is rather than what it is: the code the card is identified
     by is read from inside the document the lesson is found in, as it is for
-    every other lesson. A batch holds its ten lessons in one document, so what
-    comes back is the slice belonging to this one.
+    every other lesson. A batch holds its lessons in one document, so what comes
+    back is the slice belonging to this one.
+
+    Every PDF beside the lesson is tried, because the one that carries it is not
+    always the first: a batch keeps a per-lesson PDF here and there as well as
+    its own. A PDF that cannot be read is passed over rather than reported in
+    the lesson's place -- unless none of them carries the lesson, in which case
+    what went wrong with one of them is the likelier answer.
     """
+    trouble: LessonError | None = None
     for candidate in lesson_files(lesson_dir.parent, "*.pdf"):
-        found = lesson_rows(_rows(candidate), lesson_dir.name)
-        if found is not None:
+        try:
+            rows = _rows(candidate)
+        except LessonError as error:
+            trouble = trouble or error
+            continue
+        found = lesson_rows(rows, lesson_dir.name)
+        if found:
             return found
+    if trouble is not None:
+        raise trouble
     raise LessonError(
         f"{pdf} carries no lesson code, and no PDF in {lesson_dir.parent} carries "
         f"lesson {lesson_dir.name}"
@@ -168,16 +182,23 @@ def lesson_rows(rows: list[Row], number: str) -> list[Row] | None:
 
 
 def _lesson_starts(rows: list[Row]) -> list[tuple[int, str]]:
-    """Where each lesson in a document begins, and the code it begins with."""
+    """Where each lesson in a document begins, and the code it begins with.
+
+    The walk back over a title's first line never reaches the lesson before:
+    what it may take is bounded by the row the previous lesson's code is on, so
+    one lesson's slice can neither overlap the last one's nor come out empty.
+    """
     begins: list[tuple[int, str]] = []
+    previous_code = -1
     for index, row in enumerate(rows):
         found = CODE.search(row.text)
         if found is None:
             continue
         start = index
-        while start and _is_title_line(rows[start - 1], rows[start]):
+        while start > previous_code + 1 and _is_title_line(rows[start - 1], rows[start]):
             start -= 1
         begins.append((start, found.group(1)))
+        previous_code = index
     return begins
 
 

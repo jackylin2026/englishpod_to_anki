@@ -288,6 +288,95 @@ def test_force_regenerates_in_place_rather_than_beside_a_renamed_markdown(
     assert not (lesson / MARKDOWN).exists()
 
 
+def test_a_scanned_pdf_is_not_looked_for_beside_the_lesson(
+    corpus: Path, run_cli, scanned_lesson: Path
+) -> None:
+    """A scan wants the OCR pass, and is not sent looking for another source.
+
+    Only a lesson code the PDF does not carry sends the stage to the batch's
+    PDF; a page of pictures is a different problem with a different answer.
+    """
+    lesson = corpus / BATCH / "0110"
+    (lesson / "englishpod_B0110.md").unlink()
+    shutil.copy(scanned_lesson / "englishpod_C0109.pdf", lesson / "englishpod_C0110.pdf")
+    (lesson / "EnglishPod.Intro.0110.pdf").unlink()
+
+    result = run_cli("preprocess", lesson)
+
+    assert result.returncode == 1
+    assert "has no text layer" in result.stderr
+    assert not list(lesson.glob("*.md"))
+
+
+def test_an_unreadable_pdf_beside_the_lesson_is_passed_over(
+    corpus: Path, run_cli
+) -> None:
+    """One file in the batch that cannot be read must not cost the lesson.
+
+    The lesson's own PDF carries no code, and the first PDF in the batch
+    directory -- by name -- is not readable at all: the one carrying the lesson
+    is further down the list.
+    """
+    lesson = corpus / BATCH / "0110"
+    (lesson / "englishpod_B0110.md").unlink()
+    (corpus / BATCH / "0077 - broken.pdf").write_bytes(b"not a PDF at all")
+
+    result = run_cli("preprocess", lesson)
+
+    assert result.returncode == 0, result.stderr
+    assert (lesson / "englishpod_C0110.md").is_file()
+
+
+def test_a_lesson_is_read_from_whichever_pdf_beside_it_carries_it(
+    corpus: Path, run_cli
+) -> None:
+    """A batch may keep a per-lesson PDF as well as the one holding all of them."""
+    lesson = corpus / BATCH / "0110"
+    (lesson / "englishpod_B0110.md").unlink()
+    shutil.copy(corpus / BATCH / "0110-0111.pdf", corpus / BATCH / "aaa-first.pdf")
+
+    result = run_cli("preprocess", lesson)
+
+    assert result.returncode == 0, result.stderr
+    written = lesson / "englishpod_C0110.md"
+    assert written.is_file()
+    assert "A: Is the bicycle in the window still for sale?" in written.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_force_keeps_the_name_a_recovered_lessons_markdown_already_has(
+    corpus: Path, run_cli
+) -> None:
+    """A lesson read from the batch writes to the Markdown it already holds."""
+    lesson = corpus / BATCH / "0110"
+    (lesson / "englishpod_B0110.md").unlink()
+    corrected = lesson / "my-own-notes.md"
+    corrected.write_text("# C0110\n\nmy own correction\n", encoding="utf-8")
+
+    result = run_cli("preprocess", lesson, "--force")
+
+    assert result.returncode == 0, result.stderr
+    assert corrected.read_text(encoding="utf-8").startswith("# C0110\n")
+    assert "my own correction" not in corrected.read_text(encoding="utf-8")
+    assert not (lesson / "englishpod_C0110.md").exists()
+
+
+def test_a_directory_not_named_by_a_number_is_reported_as_it_was(
+    corpus: Path, run_cli
+) -> None:
+    """The fallback needs a number to look for; without one, nothing changes."""
+    lesson = corpus / BATCH / "extras"
+    shutil.copytree(corpus / BATCH / "0110", lesson)
+    (lesson / "englishpod_B0110.md").unlink()
+
+    result = run_cli("preprocess", lesson)
+
+    assert result.returncode == 1
+    assert "carries no lesson code" in result.stderr
+    assert not list(lesson.glob("*.md"))
+
+
 def test_a_lesson_no_pdf_beside_it_carries_is_reported(corpus: Path, run_cli) -> None:
     """The lesson is looked for beside it, by the number its directory is named.
 

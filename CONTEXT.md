@@ -33,8 +33,8 @@ The per-lesson PDF holding that lesson's dialogue and vocabulary tables. Above 2
 _Avoid_: source file, transcript
 
 **Batch PDF**:
-The combined PDF a batch directory carries: one document holding that batch's ten lessons, each beginning at the row printing its own code, and each with its dialogue and both vocabulary tables. It is a lesson PDF ten times over, and the source of every lesson above 250 that has no lesson PDF of its own.
-_Avoid_: combined PDF, the ten-lesson file
+The combined PDF a batch directory carries: one document holding the lessons of that batch — ten at most, five in the corpus's last — each beginning at the row printing its own code, and each with its dialogue and both vocabulary tables. It is the source of every lesson above 250 that has no lesson PDF of its own.
+_Avoid_: ten-lesson PDF
 
 **Introduction sheet**:
 The one-page PDF the corpus keeps above 250 where a lesson's own PDF would be. It names the lesson and says what it is about, and carries no lesson code, no dialogue and no vocabulary — which is why a lesson holding one is read out of the batch's PDF instead.

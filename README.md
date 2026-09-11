@@ -42,14 +42,16 @@ the reason each was given:
 ```
 preprocess: 365 lessons: 296 written, 69 skipped
 skipped:
-  /path/to/corpus/英语博客100-150/0135/135.pdf has no text layer; it needs the OCR pass
+  /path/to/corpus/英语博客201-250/0239/239.pdf has no text layer; it needs the OCR pass
 ```
 
-That is the whole corpus the tool was built against, measured: 296 lessons have
-Markdown, and the 69 left are image-only scans that want the OCR pass — the
-lessons above 250 included, whose content comes out of their batch's combined
-PDF. The corpus's own `.englishpodignore` names its host-transcript directory,
-which is not a lesson and used to be reported as one.
+That is the whole corpus the tool was built against, measured from a fresh copy:
+296 of its 365 lessons come out as Markdown, and the 69 left are image-only
+scans that want the OCR pass — the lessons above 250 included, whose content
+comes out of their batch's combined PDF. A run over a corpus that already holds
+Markdown counts the new files alone. The corpus's own `.englishpodignore` names
+its host-transcript directory, which is not a lesson and used to be reported as
+one.
 
 A lesson missing its dialogue audio, or one whose dialogue carries none of its
 Key Vocabulary to blank, is skipped rather than turned into a card that looks
@@ -119,8 +121,8 @@ disagrees with the filename.
 A lesson's PDF is not always the lesson's. Above lesson 250 the corpus keeps a
 one-page introduction sheet where a lesson PDF would be, and keeps the lessons
 themselves in the batch's combined PDF one directory up — one document holding
-ten of them, each beginning at the row that prints its code. `preprocess` reads
-those lessons out of it, and writes the Markdown into the lesson's own
+the batch's lessons, each beginning at the row that prints its code.
+`preprocess` reads them out of it, and writes the Markdown into the lesson's own
 directory, named for the code it found there (`0251/englishpod_C0251.md`). A
 lesson whose number nothing beside it carries is skipped with that reason.
 
