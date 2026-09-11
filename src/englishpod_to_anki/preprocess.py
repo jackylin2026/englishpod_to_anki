@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .layout import Row, cell, columns, heal_wrapped_words, read_rows, term_rows
+from .lesson import Lesson, LessonError, Turn, VocabularyTerm, lesson_file, render_markdown
 
 # The lesson code printed inside the PDF, which the filename may disagree with.
 CODE = re.compile(r"\(([A-Za-z]\d{4})\)")
@@ -25,32 +26,6 @@ SUPPLEMENTARY_HEADING = "SupplementaryVocabulary"
 
 # A vocabulary table's three columns, left to right.
 TERM_COLUMN, PART_OF_SPEECH_COLUMN, DEFINITION_COLUMN = 0, 1, 2
-
-# One speaker's turn: the physical lines the page broke it into, in order.
-Turn = tuple[str, ...]
-
-
-class PreprocessError(Exception):
-    """The lesson could not be read, so nothing was written."""
-
-
-@dataclass(frozen=True)
-class VocabularyTerm:
-    """One row of a vocabulary table: a term, a part of speech and a definition."""
-
-    term: str
-    part_of_speech: str
-    definition: str
-
-
-@dataclass(frozen=True)
-class Lesson:
-    """What could be read from one lesson PDF."""
-
-    code: str | None
-    dialogue: tuple[Turn, ...]
-    key_vocabulary: tuple[VocabularyTerm, ...]
-    supplementary_vocabulary: tuple[VocabularyTerm, ...]
 
 
 @dataclass(frozen=True)
@@ -67,36 +42,20 @@ def preprocess_lesson(lesson_dir: Path, *, force: bool = False) -> Preprocessed:
     An existing Markdown file is left alone unless `force`, so that a hand
     correction survives a re-run.
     """
-    pdf = lesson_pdf(lesson_dir)
+    pdf = lesson_file(lesson_dir, "*.pdf", what="PDF")
     markdown = pdf.with_suffix(".md")
     if markdown.exists() and not force:
         return Preprocessed(markdown=markdown, written=False)
 
-    lesson = read_lesson(pdf)
-    if lesson.code is None:
-        raise PreprocessError(f"{pdf.name} carries no lesson code")
-    markdown.write_text(render_markdown(lesson), encoding="utf-8")
+    markdown.write_text(render_markdown(read_lesson(pdf)), encoding="utf-8")
     return Preprocessed(markdown=markdown, written=True)
 
 
-def lesson_pdf(lesson_dir: Path) -> Path:
-    """The one PDF a lesson directory holds."""
-    if not lesson_dir.is_dir():
-        raise PreprocessError(f"{lesson_dir} is not a directory")
-    pdfs = sorted(lesson_dir.glob("*.pdf"))
-    if not pdfs:
-        raise PreprocessError(f"{lesson_dir} holds no PDF")
-    if len(pdfs) > 1:
-        names = ", ".join(pdf.name for pdf in pdfs)
-        raise PreprocessError(f"{lesson_dir} holds more than one PDF: {names}")
-    return pdfs[0]
-
-
 def read_lesson(path: Path) -> Lesson:
-    """Read one lesson PDF. Raises `PreprocessError` if it holds no text at all."""
+    """Read one lesson PDF. Raises `LessonError` if it holds no readable text."""
     rows = read_rows(path)
     if not rows:
-        raise PreprocessError(f"{path.name} has no text layer; it needs the OCR pass")
+        raise LessonError(f"{path.name} has no text layer; it needs the OCR pass")
 
     key_at = _heading(rows, KEY_HEADING)
     supplementary_at = _heading(rows, SUPPLEMENTARY_HEADING)
@@ -107,30 +66,14 @@ def read_lesson(path: Path) -> Lesson:
     )
 
     code, dialogue = _dialogue(rows[:first_table_at] if first_table_at is not None else rows)
+    if code is None:
+        raise LessonError(f"{path.name} carries no lesson code")
     return Lesson(
         code=code,
         dialogue=dialogue,
         key_vocabulary=_table(_section(rows, key_at, supplementary_at)),
         supplementary_vocabulary=_table(_section(rows, supplementary_at, None)),
     )
-
-
-def render_markdown(lesson: Lesson) -> str:
-    """The Markdown form of a lesson, as the build stage will read it."""
-    lines = [f"# {lesson.code}", "", "## Dialogue", ""]
-    for turn in lesson.dialogue:
-        lines += [*turn, ""]
-    for heading, table in (
-        ("Key Vocabulary", lesson.key_vocabulary),
-        ("Supplementary Vocabulary", lesson.supplementary_vocabulary),
-    ):
-        lines += [f"## {heading}", "", "| Term | Part of speech | Definition |", "| --- | --- | --- |"]
-        lines += [
-            f"| {_escape(term.term)} | {_escape(term.part_of_speech)} | {_escape(term.definition)} |"
-            for term in table
-        ]
-        lines.append("")
-    return "\n".join(lines).strip("\n") + "\n"
 
 
 def _heading(rows: list[Row], heading: str) -> int | None:
@@ -183,7 +126,3 @@ def _table(rows: list[Row]) -> tuple[VocabularyTerm, ...]:
         )
         for group in term_rows(rows)
     )
-
-
-def _escape(text: str) -> str:
-    return text.replace("|", "\\|")

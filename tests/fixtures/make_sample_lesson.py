@@ -25,6 +25,13 @@ that the tests exercise the parsing the real files demand:
 
 It also draws a second, image-only lesson for the no-text-layer case.
 
+The two `englishpod_*dg.mp3` files beside those PDFs are a second of silence
+made with `ffmpeg -f lavfi -i anullsrc=r=22050:cl=mono -t 1 -b:a 32k`: the build
+and import tests need a lesson's dialogue audio to exist, not to say anything.
+The Markdown under `markdown_lesson/`, by contrast, is written by hand rather
+than drawn -- it is there to put the vocabulary cases the card has to match in
+front of the reader, rather than in a PDF.
+
 Run it with `python tests/fixtures/make_sample_lesson.py`.
 """
 

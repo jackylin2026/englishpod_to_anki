@@ -37,7 +37,7 @@ One row of a vocabulary table: a term, a part of speech, and an English definiti
 _Avoid_: word, entry, item
 
 **Cloze blank**:
-An occurrence of a Key Vocabulary term inside the dialogue, blanked out for review. Every Key Vocabulary term the dialogue contains qualifies, matched across the source's line wrapping, simple inflections (`plunge` for `plunged`) and bracketed annotations (`(be) overstocked`). A term the dialogue never carries is reported, not guessed at.
+An occurrence of a Key Vocabulary term inside the dialogue, blanked out for review. Every Key Vocabulary term the dialogue contains qualifies, and every occurrence of one is blanked rather than only the first, matched across the source's line wrapping, simple inflections (`plunge` for `plunged`) and bracketed annotations (`(be) overstocked`). A term the dialogue never carries is reported, not guessed at.
 _Avoid_: gap, deletion
 
 **Glossary**:
@@ -55,6 +55,10 @@ _Avoid_: the mp3, lesson audio
 **Lesson card**:
 The single Anki note a lesson produces.
 _Avoid_: flashcard, card set
+
+**Note identity**:
+The tag `englishpod::C0108` a note is born with, derived from its lesson code, so that a later run finds the note an earlier run made.
+_Avoid_: note id, guid, key
 
 **Skipped lesson**:
 A lesson the tool declined to build because it was missing dialogue audio, or had no vocabulary to draw blanks from.

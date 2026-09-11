@@ -74,9 +74,12 @@ def test_writes_a_markdown_file_beside_the_lesson_pdf(lesson: Path, run_cli) -> 
     preprocessed(lesson, run_cli)
 
     assert (lesson / MARKDOWN).is_file()
+    # The lesson directory holds its PDF, its recordings and now its Markdown --
+    # the one file the run adds.
     assert sorted(path.name for path in lesson.iterdir()) == [
         "englishpod_D0108.md",
         "englishpod_D0108.pdf",
+        "englishpod_D0108dg.mp3",
     ]
 
 
@@ -201,16 +204,3 @@ def test_a_directory_holding_no_pdf_is_reported(tmp_path: Path, run_cli) -> None
 
     assert result.returncode == 1
     assert "no PDF" in result.stderr
-
-
-def test_the_three_stages_are_separately_runnable(lesson: Path, run_cli) -> None:
-    result = run_cli("--help")
-    assert result.returncode == 0
-    for stage in ("preprocess", "build", "import"):
-        assert stage in result.stdout
-
-    # build and import are wired up but not built yet, and say so rather than passing silently.
-    for stage in ("build", "import"):
-        unfinished = run_cli(stage, lesson)
-        assert unfinished.returncode == 1
-        assert unfinished.stderr.strip()

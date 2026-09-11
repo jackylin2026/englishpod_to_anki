@@ -10,16 +10,25 @@ from pathlib import Path
 
 import pytest
 
+from stub_anki import StubAnki
+
 REPOSITORY = Path(__file__).resolve().parent.parent
 SRC = REPOSITORY / "src"
 SAMPLE_LESSON = REPOSITORY / "tests" / "fixtures" / "lesson"
 SCANNED_LESSON = REPOSITORY / "tests" / "fixtures" / "scanned_lesson"
+MARKDOWN_LESSON = REPOSITORY / "tests" / "fixtures" / "markdown_lesson"
 
 
 @pytest.fixture
 def lesson(tmp_path: Path) -> Path:
     """A copy of the sample lesson directory, free to be written into."""
     return _copied(SAMPLE_LESSON, tmp_path)
+
+
+@pytest.fixture
+def markdown_lesson(tmp_path: Path) -> Path:
+    """A copy of the lesson that exists as Markdown, beside its dialogue audio."""
+    return _copied(MARKDOWN_LESSON, tmp_path)
 
 
 @pytest.fixture
@@ -32,6 +41,14 @@ def _copied(source: Path, tmp_path: Path) -> Path:
     destination = tmp_path / source.name
     shutil.copytree(source, destination)
     return destination
+
+
+@pytest.fixture
+def anki():
+    """A stub AnkiConnect, answering and recording what the tool asks of it."""
+    stub = StubAnki()
+    yield stub
+    stub.close()
 
 
 @pytest.fixture
