@@ -40,18 +40,16 @@ A run over the corpus ends with a summary of the lessons it skipped, named with
 the reason each was given:
 
 ```
-preprocess: 365 lessons: 219 written, 146 skipped
+preprocess: 365 lessons: 296 written, 69 skipped
 skipped:
   /path/to/corpus/英语博客100-150/0135/135.pdf has no text layer; it needs the OCR pass
-  /path/to/corpus/英语博客251-300/0251-0260/0251/EnglishPod.Intro.0251.pdf carries no lesson code
 ```
 
-That is the whole corpus the tool was built against, measured, and the 146 are
-worth knowing about before a first run: 69 are image-only scans that want the
-OCR pass, and 77 are the lesson-introduction sheets the batches above 250 keep in
-place of a lesson PDF (the lesson itself is in the batch's combined PDF). The
-corpus's own `.englishpodignore` names its host-transcript directory, which is
-not a lesson and used to be reported as one.
+That is the whole corpus the tool was built against, measured: 296 lessons have
+Markdown, and the 69 left are image-only scans that want the OCR pass — the
+lessons above 250 included, whose content comes out of their batch's combined
+PDF. The corpus's own `.englishpodignore` names its host-transcript directory,
+which is not a lesson and used to be reported as one.
 
 A lesson missing its dialogue audio, or one whose dialogue carries none of its
 Key Vocabulary to blank, is skipped rather than turned into a card that looks
@@ -117,6 +115,14 @@ englishpod-to-anki preprocess /path/to/corpus
 It writes `englishpod_D0108.md` beside `englishpod_D0108.pdf`. The file's title
 line carries the lesson code read from *inside* the PDF, which in a few cases
 disagrees with the filename.
+
+A lesson's PDF is not always the lesson's. Above lesson 250 the corpus keeps a
+one-page introduction sheet where a lesson PDF would be, and keeps the lessons
+themselves in the batch's combined PDF one directory up — one document holding
+ten of them, each beginning at the row that prints its code. `preprocess` reads
+those lessons out of it, and writes the Markdown into the lesson's own
+directory, named for the code it found there (`0251/englishpod_C0251.md`). A
+lesson whose number nothing beside it carries is skipped with that reason.
 
 An existing Markdown file is left alone, so a hand correction survives a re-run.
 Pass `--force` to regenerate it after a parser fix. A run over the corpus says
@@ -208,8 +214,11 @@ audio fixtures beside it are a second of silence, made with
 
 `tests/fixtures/corpus/` is a corpus laid out the way the real one is: lessons
 one and two directories deep, a batch directory carrying a combined PDF of its
-lessons beside them, something that is not a lesson at all, a lesson missing its
-dialogue audio, and a lesson whose Markdown carries no code.
+ten-lesson kind beside them (drawn holding two lessons, the second beginning
+mid-page under a title wrapped over two lines), the introduction sheets the
+lessons above 250 keep in place of a lesson PDF, something that is not a lesson
+at all, a lesson missing its dialogue audio, and a lesson whose Markdown carries
+no code.
 
 ## Documentation
 

@@ -275,6 +275,28 @@ def test_preprocess_counts_the_markdown_files_it_leaves_alone(
     assert "preprocess: 2 lessons: 1 already had a Markdown file, 1 skipped" in result.stderr
 
 
+def test_a_batch_pdf_supplies_a_lesson_whose_own_pdf_cannot(corpus: Path, run_cli) -> None:
+    """A lesson above 250 is in the batch's PDF beside it, and one run recovers it.
+
+    The fixture's introduction sheet carries no lesson code, as the corpus's do
+    not, so the lesson comes out of the batch's combined PDF -- and the card
+    built from it is a card like any other.
+    """
+    lesson = corpus / BATCH / "0110"
+    (lesson / "englishpod_B0110.md").unlink()
+
+    preprocess = run_cli("preprocess", corpus)
+
+    assert preprocess.returncode == 0, preprocess.stderr
+    assert (lesson / "englishpod_C0110.md").is_file()
+    build = run_cli("build", corpus)
+    assert build.returncode == 0, build.stderr
+    # The code the note is identified by is the one read out of the batch's PDF,
+    # not the one the Markdown that used to sit there carried.
+    assert lesson_codes(build) == ["C0108", "C0110"]
+    assert "{{c1::brakes}}" in notes(build)[1]["fields"]["Sentences"]
+
+
 def test_an_ignored_directory_is_not_a_lesson_and_is_not_reported(
     corpus: Path, run_cli
 ) -> None:

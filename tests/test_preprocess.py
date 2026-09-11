@@ -10,7 +10,10 @@ it reads C0108, which is the disagreement the corpus really has.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
+
+from conftest import BATCH
 
 MARKDOWN = "englishpod_D0108.md"
 
@@ -218,6 +221,89 @@ def test_a_pdf_that_cannot_be_read_is_reported(tmp_path: Path, run_cli) -> None:
     assert "cannot read" in result.stderr
     assert "englishpod_D0108.pdf" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_a_lesson_holding_an_introduction_sheet_is_read_from_the_pdf_beside_it(
+    corpus: Path, run_cli
+) -> None:
+    """Above 250 the corpus keeps an introduction sheet where a lesson PDF goes.
+
+    The lesson itself is in the batch's PDF one directory up: a document holding
+    ten of them, each beginning at the row that prints its code. The Markdown the
+    stage writes lands in the lesson's own directory, named for the code it read.
+    """
+    lesson = corpus / BATCH / "0110"
+    (lesson / "englishpod_B0110.md").unlink()
+
+    result = run_cli("preprocess", lesson)
+
+    assert result.returncode == 0, result.stderr
+    written = lesson / "englishpod_C0110.md"
+    assert written.is_file()
+    markdown = written.read_text(encoding="utf-8")
+    assert markdown.startswith("# C0110\n")
+    assert "A: Is the bicycle in the window still for sale?" in markdown
+    assert "| bicycle | common noun | a two-wheeled machine to ride |" in markdown
+    assert "| brakes | common noun | the parts that stop a wheel |" in markdown
+    assert "| saddle | common noun | the seat of a bicycle |" in markdown
+
+
+def test_a_title_printed_over_two_lines_does_not_leak_into_the_lesson_before(
+    corpus: Path, run_cli
+) -> None:
+    """A lesson begins at its title, not at the line carrying its code.
+
+    The second lesson of the fixture's batch prints a title too long for its
+    column, so its code sits beside the title's second line -- and the line above
+    that belongs to this lesson, not to the one before it. Left in the wrong
+    slice, a title line spans the vocabulary table's columns and takes them with
+    it: the lesson before would come out with one column instead of three.
+    """
+    lesson = corpus / BATCH / "0110"
+    (lesson / "englishpod_B0110.md").unlink()
+    assert run_cli("preprocess", lesson).returncode == 0
+    markdown = (lesson / "englishpod_C0110.md").read_text(encoding="utf-8")
+
+    supplementary = section(markdown, "Supplementary Vocabulary")
+    rows = [line for line in supplementary.splitlines() if line.startswith("|")]
+    # The header, the rule, and the lesson's one entry -- and not the line of
+    # the next lesson's title that a slice taken at the code row would swallow.
+    assert len(rows) == 3
+    assert "| saddle | common noun | the seat of a bicycle |" in supplementary
+    assert "Daily Life" not in markdown
+
+
+def test_force_regenerates_in_place_rather_than_beside_a_renamed_markdown(
+    lesson: Path, run_cli
+) -> None:
+    """A lesson directory holds one Markdown, whatever its owner called it."""
+    corrected = lesson / "my-own-notes.md"
+    corrected.write_text("# C0108\n\nmy own correction\n", encoding="utf-8")
+
+    result = run_cli("preprocess", lesson, "--force")
+
+    assert result.returncode == 0, result.stderr
+    assert corrected.read_text(encoding="utf-8").startswith("# C0108\n")
+    assert "my own correction" not in corrected.read_text(encoding="utf-8")
+    assert not (lesson / MARKDOWN).exists()
+
+
+def test_a_lesson_no_pdf_beside_it_carries_is_reported(corpus: Path, run_cli) -> None:
+    """The lesson is looked for beside it, by the number its directory is named.
+
+    A directory whose number nothing beside it carries is reported with the
+    reason, rather than left to look like one more lesson nobody can read.
+    """
+    lesson = corpus / BATCH / "0199"
+    shutil.copytree(corpus / BATCH / "0110", lesson)
+    (lesson / "englishpod_B0110.md").unlink()
+
+    result = run_cli("preprocess", lesson)
+
+    assert result.returncode == 1
+    assert "carries no lesson code" in result.stderr
+    assert "carries lesson 0199" in result.stderr
+    assert not list(lesson.glob("*.md"))
 
 
 def test_a_directory_holding_too_many_pdfs_names_a_few_of_them(

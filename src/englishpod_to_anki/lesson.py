@@ -69,6 +69,18 @@ class Lesson:
 NAMED = 3
 
 
+def lesson_files(directory: Path, name: str) -> list[Path]:
+    """Every file of one kind a lesson directory holds, in name order.
+
+    None of them is an answer a caller may want: a stage looking for the
+    Markdown a lesson already has asks what is there, and takes the one the
+    rules for two of them give.
+    """
+    if not directory.is_dir():
+        return []
+    return sorted(directory.glob(name))
+
+
 def lesson_file(directory: Path, name: str, *, what: str) -> Path:
     """The one file of its kind a lesson directory holds.
 
@@ -78,7 +90,7 @@ def lesson_file(directory: Path, name: str, *, what: str) -> Path:
     """
     if not directory.is_dir():
         raise LessonError(f"{directory} is not a directory")
-    files = sorted(directory.glob(name))
+    files = lesson_files(directory, name)
     if not files:
         raise LessonError(f"{directory} holds no {what}")
     if len(files) > 1:

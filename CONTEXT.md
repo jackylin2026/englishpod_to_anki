@@ -25,12 +25,20 @@ A directory the corpus's owner declares out of scope in the `.englishpodignore` 
 _Avoid_: skipped directory, ignored lesson
 
 **Lesson code**:
-The identifier printed in a lesson PDF's header — a level letter and four digits, such as `C0108`. Always read from the PDF; never inferred from a filename, which disagrees with it in a small number of cases.
+The identifier printed in a lesson PDF's header — a level letter and four digits, such as `C0108`. Always read from the PDF; never inferred from a filename, which disagrees with it in a small number of cases. Where a lesson has no PDF of its own, the four digits of its directory's name say which lesson to look for in the PDF beside it, and the code is still read from inside the document it is found in.
 _Avoid_: lesson number, file name
 
 **Lesson PDF**:
-The per-lesson PDF holding that lesson's dialogue and vocabulary tables.
+The per-lesson PDF holding that lesson's dialogue and vocabulary tables. Above 250 the corpus keeps an introduction sheet in its place, and the lesson's tables are in the batch's PDF one directory up.
 _Avoid_: source file, transcript
+
+**Batch PDF**:
+The combined PDF a batch directory carries: one document holding that batch's ten lessons, each beginning at the row printing its own code, and each with its dialogue and both vocabulary tables. It is a lesson PDF ten times over, and the source of every lesson above 250 that has no lesson PDF of its own.
+_Avoid_: combined PDF, the ten-lesson file
+
+**Introduction sheet**:
+The one-page PDF the corpus keeps above 250 where a lesson's own PDF would be. It names the lesson and says what it is about, and carries no lesson code, no dialogue and no vocabulary — which is why a lesson holding one is read out of the batch's PDF instead.
+_Avoid_: intro PDF, the lesson intro
 
 **Print transcript**:
 The condensed corpus-wide PDF containing dialogues for most lessons, and no vocabulary at all.

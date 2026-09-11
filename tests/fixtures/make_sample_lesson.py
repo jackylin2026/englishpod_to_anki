@@ -82,6 +82,20 @@ class Entry:
     lines: list[Line]
 
 
+@dataclass(frozen=True)
+class Sample:
+    """One lesson as a batch's combined PDF holds it."""
+
+    code: str
+    title: str
+    dialogue: list[tuple[str, list[str]]]
+    key_vocabulary: list[Entry]
+    supplementary_vocabulary: list[Entry]
+    # Whether the title runs past the column, printing its code beside the
+    # second line, as lesson 0259's does in the corpus.
+    wrapped_title: bool = False
+
+
 def word_width(word: str, size: float) -> float:
     return pdfmetrics.stringWidth(word, FONT, size)
 
@@ -228,6 +242,135 @@ def build(path: Path) -> None:
     pdf.save()
 
 
+# The x the corpus prints a lesson's code at, on its title's line.
+CODE_X = 405.0
+
+# How far down a page the drawing may reach before the next line goes on a new one.
+PAGE_BOTTOM = 720.0
+
+SAMPLE_LESSONS = [
+    Sample(
+        code="C0110",
+        title="Around Town - Buying a Bicycle",
+        dialogue=[
+            ("A", ["Is the bicycle in the window still for sale?"]),
+            ("B", ["It is, but the brakes need work."]),
+            ("A", ["I can fix the brakes myself. What are you", "asking for it?"]),
+            ("B", ["Sixty, and the saddle is new."]),
+        ],
+        key_vocabulary=[
+            Entry([Line(["bicycle"], ["common noun"], ["a two-wheeled machine"]),
+                   Line([], [], ["to ride"])]),
+            Entry([Line(["brakes"], ["common noun"], ["the parts that stop"]),
+                   Line([], [], ["a wheel"])]),
+        ],
+        supplementary_vocabulary=[
+            Entry([Line(["saddle"], ["common noun"], ["the seat of a bicycle"])]),
+        ],
+    ),
+    Sample(
+        code="C0111",
+        # A title long enough to wrap, the way 0256's and 0259's do: the code
+        # prints beside the second line, which is where the lesson begins.
+        title="Daily Life - Fixing the Kettle",
+        wrapped_title=True,
+        dialogue=[
+            ("A", ["The kettle has stopped working again."]),
+            ("B", ["Did you descale it?"]),
+            ("A", ["I did, and it still will not boil."]),
+        ],
+        key_vocabulary=[
+            Entry([Line(["kettle"], ["common noun"], ["a pot for boiling water"])]),
+            Entry([Line(["descale"], ["verb"], ["to take the mineral"]),
+                   Line([], [], ["deposit off"])]),
+        ],
+        supplementary_vocabulary=[
+            Entry([Line(["boil"], ["verb"], ["to heat a liquid until"]),
+                   Line([], [], ["it bubbles"])]),
+        ],
+    ),
+]
+
+
+def draw_sample(pdf: canvas.Canvas, top: float, sample: Sample) -> float:
+    """Draw one lesson, and answer where the next thing may be drawn.
+
+    A lesson in a batch's PDF looks like a lesson PDF's worth of content with no
+    page of its own: its title, its dialogue, and its two tables, drawn one
+    after another on the page the last lesson left off on.
+    """
+    pdf.setFont(FONT, TITLE_SIZE)
+    if sample.wrapped_title:
+        first, rest = sample.title.split(" - ", 1)
+        pdf.drawString(TITLE_X, PAGE_HEIGHT - top, first + " -")
+        top += LINE_PITCH
+        pdf.drawString(TITLE_X, PAGE_HEIGHT - top, rest)
+        pdf.drawString(CODE_X, PAGE_HEIGHT - top, f"({sample.code})")
+    else:
+        pdf.drawString(TITLE_X, PAGE_HEIGHT - top, sample.title)
+        pdf.drawString(CODE_X, PAGE_HEIGHT - top, f"({sample.code})")
+    top += LINE_PITCH * 2
+
+    for label, lines in sample.dialogue:
+        for index, text in enumerate(lines):
+            segments = [(LABEL_X, f"{label}:")] if index == 0 else []
+            draw_line(pdf, top, [*segments, (BODY_X, text)])
+            top += LINE_PITCH
+        top += LINE_PITCH / 2
+    top += LINE_PITCH * 3
+
+    for heading, entries in (
+        ("Key Vocabulary", sample.key_vocabulary),
+        ("Supplementary Vocabulary", sample.supplementary_vocabulary),
+    ):
+        pdf.setFont(FONT, TITLE_SIZE)
+        pdf.drawString(TITLE_X, PAGE_HEIGHT - top, heading)
+        top += LINE_PITCH * 2
+        for entry in entries:
+            draw_entry(pdf, top, entry)
+            top += ENTRY_PITCH * 0.6 + LINE_PITCH * (len(entry.lines) - 1)
+        top += LINE_PITCH * 2
+    return top
+
+
+def build_batch(path: Path, samples: list[Sample]) -> None:
+    """Draw several lessons into one PDF, as the corpus's batches keep them.
+
+    Nothing marks where one lesson ends and the next begins except the row each
+    title prints its code on, and a lesson does not begin on a page of its own:
+    the drawing breaks the page only when it would otherwise run off the bottom.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pdf = canvas.Canvas(str(path), pagesize=A4)
+    top = 120.0
+    for sample in samples:
+        if top > PAGE_BOTTOM:
+            draw_footer(pdf)
+            pdf.showPage()
+            top = 120.0
+        top = draw_sample(pdf, top, sample)
+    draw_footer(pdf)
+    pdf.save()
+
+
+def build_intro(path: Path, number: str, title: str) -> None:
+    """Draw the introduction sheet the corpus keeps in place of a lesson PDF.
+
+    It names the lesson and says what it is about. It carries no lesson code,
+    no dialogue and no vocabulary, which is why a lesson holding one has to be
+    read out of the PDF beside it.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pdf = canvas.Canvas(str(path), pagesize=A4)
+    pdf.setFont(FONT, TITLE_SIZE)
+    pdf.drawString(TITLE_X, PAGE_HEIGHT - 95, "EnglishPod Lesson Introduction")
+    pdf.setFont(FONT, BODY_SIZE)
+    pdf.drawString(TITLE_X, PAGE_HEIGHT - 130, f"{number} {title}")
+    pdf.drawString(TITLE_X, PAGE_HEIGHT - 160, "Today we discuss " + title.lower() + ".")
+    draw_footer(pdf)
+    pdf.save()
+
+
 def build_scanned(path: Path) -> None:
     """Draw a lesson that is only a picture, with no text layer whatsoever.
 
@@ -250,5 +393,15 @@ if __name__ == "__main__":
     destination = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent
     build(destination / "lesson" / "englishpod_D0108.pdf")
     build_scanned(destination / "scanned_lesson" / "englishpod_C0109.pdf")
-    print(f"wrote {destination / 'lesson' / 'englishpod_D0108.pdf'}")
-    print(f"wrote {destination / 'scanned_lesson' / 'englishpod_C0109.pdf'}")
+    batch = destination / "corpus" / "0110-0111"
+    build_batch(batch / "0110-0111.pdf", SAMPLE_LESSONS)
+    build_intro(batch / "0110" / "EnglishPod.Intro.0110.pdf", "0110", "Around Town - Buying a Bicycle")
+    build_intro(batch / "0111" / "EnglishPod.Intro.0111.pdf", "0111", "Daily Life - Fixing the Kettle")
+    for written in (
+        destination / "lesson" / "englishpod_D0108.pdf",
+        destination / "scanned_lesson" / "englishpod_C0109.pdf",
+        batch / "0110-0111.pdf",
+        batch / "0110" / "EnglishPod.Intro.0110.pdf",
+        batch / "0111" / "EnglishPod.Intro.0111.pdf",
+    ):
+        print(f"wrote {written}")
