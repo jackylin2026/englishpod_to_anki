@@ -3,6 +3,10 @@
 A lesson PDF holds one column of dialogue followed by two three-column
 vocabulary tables. Nothing in the file marks where a column begins, so the
 geometry is recovered from where the words sit on the page.
+
+Reading the words back out is part of the same job: the page breaks words and
+prints contractions as several runs of glyphs, and putting them back together
+needs to know where the columns end and what the words are.
 """
 
 from __future__ import annotations
@@ -13,6 +17,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import pdfplumber
+
+from .dictionary import is_word
 
 # Words whose tops are closer together than this sit on the same physical line.
 ROW_TOLERANCE = 6.0
@@ -90,20 +96,29 @@ def _rejoin_apostrophes(words: list[Word]) -> list[Word]:
     it, so `You've` comes as `You` and `'ve`.
     """
     rejoined: list[Word] = []
+    apostrophe_alone = False
     for word in words:
-        if rejoined and _belongs_to_previous(word, rejoined[-1]):
+        if rejoined and (
+            apostrophe_alone or _is_stray_apostrophe(word) or _is_contraction_tail(word, rejoined[-1])
+        ):
             last = rejoined[-1]
             rejoined[-1] = Word(last.text + word.text, last.x0, word.x1)
         else:
             rejoined.append(word)
+        # Only an apostrophe we just took in as a fragment of its own wants what
+        # follows it. A word that merely ends in one is a possessive, and the
+        # next word is a word in its own right.
+        apostrophe_alone = _is_stray_apostrophe(word)
     return rejoined
 
 
-def _belongs_to_previous(word: Word, previous: Word) -> bool:
-    if _is_stray_apostrophe(word) or _ends_on_stray_apostrophe(previous):
-        return True
-    # Only a contraction's tail is glued back on, so a word that really does open
-    # with an apostrophe -- `'tis`, `'bout` -- keeps the space in front of it.
+def _is_contraction_tail(word: Word, previous: Word) -> bool:
+    """Whether this fragment continues a contraction cut before its apostrophe.
+
+    `You've` can arrive as `You` and `'ve`. Only a contraction's tail is glued
+    back on, so a word that really does open with an apostrophe -- `'tis`,
+    `'bout` -- keeps the space in front of it.
+    """
     tail = word.text.removeprefix("'").removeprefix("’")
     return (
         tail != word.text
@@ -115,15 +130,6 @@ def _belongs_to_previous(word: Word, previous: Word) -> bool:
 
 def _is_stray_apostrophe(word: Word) -> bool:
     return word.text != "" and word.text.strip("'’") == ""
-
-
-def _ends_on_stray_apostrophe(word: Word) -> bool:
-    """Whether this fragment is an apostrophe already joined to a word, with nothing after it.
-
-    Requiring more than one character keeps a quotation mark that opens a line
-    from swallowing the word that follows it.
-    """
-    return len(word.text) > 1 and word.text[-1] in "'’"
 
 
 def _words(page: pdfplumber.page.Page) -> list[dict[str, Any]]:
@@ -220,17 +226,45 @@ def term_rows(rows: list[Row]) -> list[list[Row]]:
 def heal_wrapped_words(fragments: Iterable[str]) -> list[str]:
     """Fragments with any word the typesetter broke across two of them put back together.
 
-    A fragment ending in a hyphen is a word split by a line break, so the hyphen
-    goes and the halves close up. The fragments themselves are otherwise left as
-    printed, because the card built from them breaks where the page broke.
+    A fragment ending in a hyphen is a word split by a line break. The fragments
+    themselves are otherwise left as printed, because the card built from them
+    breaks where the page broke.
     """
     healed: list[str] = []
     for fragment in fragments:
         if healed and healed[-1].endswith("-"):
-            healed[-1] = healed[-1][:-1] + fragment
+            healed[-1] = _rejoined(healed[-1], fragment)
         else:
             healed.append(fragment)
     return healed
+
+
+def _rejoined(previous: str, following: str) -> str:
+    """Two fragments, joined at the word the hyphen sits inside.
+
+    Taking the hyphen out is right for a word the typesetter broke to fit the
+    column -- `reg-` and `ulations` are `regulations`. Keeping it is right for a
+    hyphen the author typed that happened to land at the break, as `non-` and
+    `variable` are `non-variable`. The dictionary decides which, because the two
+    are identical on the page.
+    """
+    broken = previous[previous.rfind(" ") + 1 :]
+    tail = _leading_letters(following)
+    whole = broken[:-1] + tail
+    joined = whole if is_word(whole) else broken + tail
+    return previous[: -len(broken)] + joined + following[len(tail) :]
+
+
+def _leading_letters(text: str) -> str:
+    """The run of letters a fragment opens with, which is where a broken word resumes.
+
+    The corpus sometimes loses the space after a word, so `transform-` continues
+    into `ers...the Optimus Prime`; only the letters are the rest of the word.
+    """
+    end = 0
+    while end < len(text) and text[end].isalpha():
+        end += 1
+    return text[:end]
 
 
 def cell(rows: list[Row], edges: tuple[float, ...], index: int) -> str:

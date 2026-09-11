@@ -42,6 +42,13 @@ disagrees with the filename.
 An existing Markdown file is left alone, so a hand correction survives a re-run.
 Pass `--force` to regenerate it after a parser fix.
 
+Words the typesetter broke over a line are put back together, and the
+distinction between those and a hyphen the author typed is settled by the
+offline dictionary (`cmudict`): `immac-` / `ulate` becomes `immaculate`, while
+`entry-` / `level` stays `entry-level`, because `entrylevel` is not a word. A
+word the dictionary does not know keeps its hyphen rather than have one guessed
+away.
+
 ## Tests
 
 ```

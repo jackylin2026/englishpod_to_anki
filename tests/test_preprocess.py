@@ -29,7 +29,11 @@ them off without a signature.
 
 Veronica: I have told you twice already.
 
-A: You’ve made your point."""
+A: You’ve made your point.
+
+B: I have two weeks’ vacation left before term starts.
+
+A: We only hire at entry-level for this role."""
 
 EXPECTED_KEY_VOCABULARY = [
     ("stockroom", "common noun, singular", "the room where goods are kept"),
@@ -132,6 +136,30 @@ def test_a_contraction_printed_as_two_runs_is_rejoined(lesson: Path, run_cli) ->
 
     assert "A: You’ve made your point." in dialogue
     assert " ’" not in dialogue
+
+
+def test_a_word_the_typesetter_broke_loses_its_hyphen(lesson: Path, run_cli) -> None:
+    """`immac-` and `ulate` are `immaculate`; the dictionary knows the whole word."""
+    dialogue = section(preprocessed(lesson, run_cli), "Dialogue")
+
+    assert "the stockroom immaculate before" in dialogue
+    assert "immac-" not in dialogue
+    assert "weeks’ vacation left" in dialogue
+
+
+def test_a_hyphen_the_author_typed_is_kept(lesson: Path, run_cli) -> None:
+    """`entrylevel` is not a word, so the hyphen in `entry-level` is the author's."""
+    dialogue = section(preprocessed(lesson, run_cli), "Dialogue")
+
+    assert "hire at entry-level for this role" in dialogue
+
+
+def test_a_possessive_apostrophe_does_not_swallow_the_next_word(lesson: Path, run_cli) -> None:
+    """`weeks’` ends in an apostrophe but is finished; it is not a cut contraction."""
+    dialogue = section(preprocessed(lesson, run_cli), "Dialogue")
+
+    assert "two weeks’ vacation" in dialogue
+    assert "weeks’v" not in dialogue
 
 
 def test_a_lesson_pdf_with_no_text_layer_is_reported(scanned_lesson: Path, run_cli) -> None:

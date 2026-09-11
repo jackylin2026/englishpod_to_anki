@@ -18,6 +18,10 @@ that the tests exercise the parsing the real files demand:
 - a speaker label wide enough to run into the first word the speaker says, so
   the two overlap on the page and ordering by position alone interleaves them
 - a contraction printed as two runs of glyphs a shade further apart than a space
+- a possessive ending in an apostrophe straight in front of a broken word
+- a hyphen the author typed landing at a line break (`entry-level`), next to one
+  the typesetter inserted (`immac-` / `ulate`), which only the dictionary can
+  tell apart
 
 It also draws a second, image-only lesson for the no-text-layer case.
 
@@ -131,6 +135,14 @@ DIALOGUE = [
     (400.0, [(LABEL_X, WIDE_LABEL), (BODY_X, "I have told you twice already.")]),
     # `You've` printed as two runs of glyphs, a shade further apart than a space.
     (440.0, [(LABEL_X, "A:"), (BODY_X, "You"), (after("You", BODY_X, 5.4), "’ve made your point.")]),
+    # A possessive ending in an apostrophe, directly in front of a broken word. Its
+    # apostrophe is not an unfinished contraction, so it must not swallow `va-`.
+    (480.0, [(LABEL_X, "B:"), (BODY_X, "I have two weeks’ va-")]),
+    (500.0, [(BODY_X, "cation left before term starts.")]),
+    # The typesetter's break, which goes: `entrylevel` is not a word, but the
+    # hyphen here is the author's, so `entry-level` keeps it.
+    (540.0, [(LABEL_X, "A:"), (BODY_X, "We only hire at entry-")]),
+    (560.0, [(BODY_X, "level for this role.")]),
 ]
 
 KEY_VOCABULARY = [
@@ -186,8 +198,8 @@ def build(path: Path) -> None:
         draw_line(pdf, top, segments)
     # The Key Vocabulary table begins on the dialogue's last page and runs on.
     pdf.setFont(FONT, TITLE_SIZE)
-    pdf.drawString(TITLE_X, PAGE_HEIGHT - 560, "Key Vocabulary")
-    draw_entry(pdf, 620.0, KEY_VOCABULARY[0])
+    pdf.drawString(TITLE_X, PAGE_HEIGHT - 600, "Key Vocabulary")
+    draw_entry(pdf, 640.0, KEY_VOCABULARY[0])
     draw_entry(pdf, 740.0, KEY_VOCABULARY[1])
     draw_footer(pdf)
     pdf.showPage()
