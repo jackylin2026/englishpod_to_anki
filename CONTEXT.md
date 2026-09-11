@@ -21,7 +21,7 @@ The condensed corpus-wide PDF containing dialogues for most lessons, and no voca
 _Avoid_: the print PDF, the condensed PDF
 
 **Dialogue**:
-A lesson's scripted conversation. Speakers are labelled `A:`/`B:`; there are no timestamps and no line numbers.
+A lesson's scripted conversation. Each turn opens with a speaker label — a colon after one or two capitalised words, so `A:`, `C:`, `Steven:`, `Team A:`. There are no timestamps and no line numbers.
 _Avoid_: script, transcript, conversation
 
 **Key Vocabulary**:
