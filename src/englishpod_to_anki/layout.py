@@ -29,8 +29,12 @@ ROW_TOLERANCE = 6.0
 # between two columns.
 MIN_GUTTER = 8.0
 
-# A vertical gap this many times the table's tightest row pitch begins a new term.
+# A vertical gap this many times the table's own row pitch begins a new term.
 TERM_GAP_FACTOR = 1.5
+
+# A gap narrower than this is not a row pitch at all: a table read back off a
+# picture has boxes a fraction of a point apart where a text layer has one line.
+NARROWER_THAN_A_ROW = 6.0
 
 # What an English contraction can end in once its apostrophe is taken off:
 # I'm, you've, he's, don't, we'd, they'll, you're. Anything longer is a word in
@@ -258,7 +262,12 @@ def term_rows(rows: list[Row]) -> list[list[Row]]:
     """Split a vocabulary table's rows into one group per vocabulary term.
 
     A term's own lines sit close together and the gap before the next term is
-    wider. A page break always begins a new term.
+    wider. The pitch is the narrowest gap between two rows -- but a gap too
+    narrow to be one is not a pitch: a table read back off a picture has a row
+    whose two boxes sit a fraction of a point apart, and reading that off as the
+    table's pitch made every row a term of its own, filling the tables of a
+    third of the corpus's scans with empty-term rows. A page break always begins
+    a new term.
     """
     if not rows:
         return []
@@ -267,6 +276,7 @@ def term_rows(rows: list[Row]) -> list[list[Row]]:
         for current, following in zip(rows, rows[1:])
         if current.page == following.page and following.top > current.top
     ]
+    pitches = [pitch for pitch in pitches if pitch >= NARROWER_THAN_A_ROW] or pitches
     threshold = min(pitches) * TERM_GAP_FACTOR if pitches else None
 
     groups: list[list[Row]] = [[rows[0]]]

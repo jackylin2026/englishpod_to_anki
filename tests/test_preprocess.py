@@ -449,7 +449,10 @@ PAGE = [
     ("balloon", 398.0, 2158.0),
     ("by hot air", 1582.0, 2170.0),
     ("jagged", 398.0, 2400.0),
-    ("A", 915.0, 2407.0),
+    # A hair's breadth below the term beside it, which is what a row's boxes do
+    # when they are read off a picture. Taken for the table's own row pitch, it
+    # makes every row a term of its own.
+    ("A", 915.0, 2400.2),
     ("having a sharp surface", 1582.0, 2405.0),
 ]
 
