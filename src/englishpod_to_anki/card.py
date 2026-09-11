@@ -10,6 +10,7 @@ that matters.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -139,6 +140,51 @@ def dialogue_audio(lesson_dir: Path) -> Path:
     reads it in its own working directory, not the one the tool was run from.
     """
     return lesson_file(lesson_dir, "*dg.mp3", what="dialogue audio").resolve()
+
+
+def design_differences(
+    fields: Sequence[str], templates: Mapping[str, Mapping[str, str]]
+) -> tuple[str, ...]:
+    """How a note type already in the collection differs from the card's design.
+
+    The note type is the tool's to make but not always its to trust. A field it
+    lacks would be dropped from every note silently, a card side that never
+    renders one would hide it, and a note type making more than one card would
+    multiply every lesson. What the tool makes renders the design's fields on
+    one card; anything else is reported for a person to settle.
+    """
+    differences: list[str] = []
+    existing = {field.lower() for field in fields}
+    differences += [
+        f"it has no field named {field}" for field in FIELDS if field.lower() not in existing
+    ]
+    if len(templates) != 1:
+        differences.append(f"it makes {len(templates)} cards a note, and the design makes one")
+        return tuple(differences)
+
+    (template,) = templates.values()
+    sides = {side.lower(): rendered for side, rendered in template.items()}
+    for side, design in (("front", FRONT_TEMPLATE), ("back", BACK_TEMPLATE)):
+        missing = [
+            name
+            for name in _references(design)
+            if name not in _references(sides.get(side, ""))
+        ]
+        if missing:
+            differences.append(f"its {side} never renders {', '.join(missing)}")
+    return tuple(differences)
+
+
+def _references(template: str) -> list[str]:
+    """The fields one side of a card renders, as `{{...}}` writes them.
+
+    A conditional renders the field it names, so the marker is taken off: a
+    `{{#Phonetic symbols}}` is the same field as a `{{Phonetic symbols}}`.
+    """
+    return [
+        match.strip().lstrip("#^/").strip()
+        for match in re.findall(r"\{\{([^{}]*)\}\}", template)
+    ]
 
 
 def blank(dialogue: Dialogue, terms: tuple[VocabularyTerm, ...]) -> Blanked:

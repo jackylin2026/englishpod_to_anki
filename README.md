@@ -76,7 +76,11 @@ rather than a fuzzy match.
 Anki must be running with the
 [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on installed, and
 the `EnglishPod` deck must already exist — the tool verifies it rather than
-making one. The `EnglishPod Cloze` note type is created on the first import:
+making one. The `EnglishPod Cloze` note type is created on the first import; if
+one of that name is already there, its fields and cards are checked against the
+card's design first, and import stops rather than writing notes whose glossary
+or audio no card would show. Styling is yours either way — the check is about
+what the card renders, not how it looks:
 
 ```
 englishpod-to-anki import /path/to/corpus/英语博客100-150/0108

@@ -56,6 +56,10 @@ _Avoid_: the mp3, lesson audio
 The single Anki note a lesson produces.
 _Avoid_: flashcard, card set
 
+**Card design**:
+The six fields and the one card a lesson card is made of: the front rendering the dialogue, the back rendering it filled, then the phonetic transcriptions, the glossary, `Synonym`, `Word Family` and the dialogue audio. A note type in the collection that does not carry it is refused rather than written into.
+_Avoid_: template, model, layout
+
 **Note identity**:
 The tag `englishpod::C0108` a note is born with, derived from its lesson code, so that a later run finds the note an earlier run made.
 _Avoid_: note id, guid, key

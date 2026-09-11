@@ -10,7 +10,14 @@ to do about one is a later concern.
 from __future__ import annotations
 
 from .anki import DEFAULT_URL, AnkiConnect, AnkiConnectError
-from .card import BACK_TEMPLATE, CSS, FIELDS, FRONT_TEMPLATE, Note
+from .card import (
+    BACK_TEMPLATE,
+    CSS,
+    FIELDS,
+    FRONT_TEMPLATE,
+    Note,
+    design_differences,
+)
 
 
 def send_note(note: Note, *, url: str = DEFAULT_URL) -> int:
@@ -28,6 +35,21 @@ def send_note(note: Note, *, url: str = DEFAULT_URL) -> int:
             back=BACK_TEMPLATE,
             css=CSS,
         )
+    else:
+        # A note type of the right name may still be a different card: one made
+        # by hand, or by an earlier design. Its fields are checked before a note
+        # is shaped to fit them, and its cards before the note would render in
+        # them -- a field the type lacks is dropped from a note without a word.
+        differences = design_differences(
+            anki.note_type_fields(note.note_type),
+            anki.note_type_templates(note.note_type),
+        )
+        if differences:
+            raise AnkiConnectError(
+                f"the {note.note_type} note type in the collection is not the card's design "
+                f"({'; '.join(differences)}); bring it into line in Anki, or delete it if it "
+                "holds no notes, then run import again"
+            )
     # The audio goes up before the note that plays it, or the field would point
     # at a file the collection does not have yet.
     anki.store_media(note.audio)

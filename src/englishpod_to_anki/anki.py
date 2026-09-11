@@ -39,6 +39,14 @@ class AnkiConnect:
     def note_types(self) -> list[str]:
         return self._call("modelNames")
 
+    def note_type_fields(self, name: str) -> list[str]:
+        """The fields of one note type, in the order the collection holds them."""
+        return self._call("modelFieldNames", modelName=name)
+
+    def note_type_templates(self, name: str) -> dict[str, dict[str, str]]:
+        """One note type's cards, each against the two sides it renders."""
+        return self._call("modelTemplates", modelName=name)
+
     def create_note_type(
         self,
         name: str,

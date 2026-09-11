@@ -23,9 +23,14 @@ class StubAnki:
         *,
         deck_names: tuple[str, ...] = ("EnglishPod", "Default"),
         model_names: tuple[str, ...] = (),
+        note_type: dict[str, Any] | None = None,
     ) -> None:
         self.deck_names = list(deck_names)
         self.model_names = list(model_names)
+        # What the collection's note type holds, as `{"fields": [...],
+        # "templates": {"Cloze": {"Front": ..., "Back": ...}}}`. A test that
+        # makes the tool look at a note type already there sets this.
+        self.note_type = note_type
         self.requests: list[dict[str, Any]] = []
         self.refusals: dict[str, str] = {}
         self.note_id = 1788443524727
@@ -62,6 +67,10 @@ class StubAnki:
             return self.deck_names
         if action == "modelNames":
             return self.model_names
+        if action == "modelFieldNames":
+            return self._note_type()["fields"]
+        if action == "modelTemplates":
+            return self._note_type()["templates"]
         if action == "createModel":
             self.model_names.append(params["modelName"])
             return {"id": 1761206860731, "name": params["modelName"]}
@@ -70,6 +79,11 @@ class StubAnki:
         if action == "addNote":
             return self.note_id
         raise ValueError(f"the stub does not answer {action!r}")
+
+    def _note_type(self) -> dict[str, Any]:
+        if self.note_type is None:
+            raise ValueError("this test's stub holds no note type to describe")
+        return self.note_type
 
 
 def _handler(stub: StubAnki) -> type[BaseHTTPRequestHandler]:
