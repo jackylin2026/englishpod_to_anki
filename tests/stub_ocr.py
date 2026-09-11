@@ -6,10 +6,10 @@ the tests assert on: that a page went up, that an ordinary run sent nothing, and
 that the token was asked for once.
 
 What it answers with is what a test lays out: lines of text with the coordinates
-they would have been printed at. A line answers with the positions of its words,
-the way the service does when it is asked to position every character and group
-English into words, so the pass reads a page's layout out of it exactly as it
-reads one out of a text layer.
+they would have been printed at. A line is a printed line of the page, and on a
+vocabulary page it is a cell -- the term, the part of speech and the definition
+answer as three lines side by side -- so the pass reads a page's layout out of
+the answer exactly as it reads one out of a text layer.
 """
 
 from __future__ import annotations
@@ -76,37 +76,19 @@ class StubOcr:
         return {"words_result_num": len(self.lines), "words_result": self._result()}
 
     def _result(self) -> list[dict[str, Any]]:
-        """The page, as the service lays its answer out."""
-        lines: list[dict[str, Any]] = []
-        for text, left, top in self.lines:
-            placed: list[dict[str, Any]] = []
-            edge = left
-            for word in text.split():
-                placed.append(
-                    {
-                        "char": word,
-                        "location": {
-                            "left": edge,
-                            "top": top,
-                            "width": len(word) * CHARACTER,
-                            "height": LINE_HEIGHT,
-                        },
-                    }
-                )
-                edge += (len(word) + 1) * CHARACTER
-            lines.append(
-                {
-                    "words": text,
-                    "location": {
-                        "left": left,
-                        "top": top,
-                        "width": edge - left,
-                        "height": LINE_HEIGHT,
-                    },
-                    "chars": placed,
-                }
-            )
-        return lines
+        """The page, as the service lays its answer out: a printed line at a time."""
+        return [
+            {
+                "words": text,
+                "location": {
+                    "left": left,
+                    "top": top,
+                    "width": len(text) * CHARACTER,
+                    "height": LINE_HEIGHT,
+                },
+            }
+            for text, left, top in self.lines
+        ]
 
 
 def _handler(stub: StubOcr) -> type[BaseHTTPRequestHandler]:

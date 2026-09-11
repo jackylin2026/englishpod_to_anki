@@ -425,24 +425,32 @@ def test_a_directory_holding_too_many_pdfs_names_a_few_of_them(
 SCANNED = "englishpod_C0109.md"
 KEY, SECRET = "BAIDU_OCR_API_KEY", "BAIDU_OCR_SECRET_KEY"
 
-# One page of an EnglishPod lesson, at the coordinates a page is printed at: a
-# title carrying the code, two speakers, and a vocabulary table of three
-# columns. What the service answers with is where the words were; what the
-# lesson is stays the reader's to work out, and it is the same reader.
+# One page of an EnglishPod lesson, as the service answers it: a title carrying
+# the code, two speakers, and a vocabulary table of three columns. The
+# coordinates are the picture's own pixels -- the service measures a page in the
+# image it was sent, not in the points a text layer is in -- and they are the
+# ones lesson 0239's own second page answered with, near enough to be a fixture.
 PAGE = [
-    ("The Weekend - Adventure Sports (C0109)", 100.0, 100.0),
-    ("A: Welcome to Adventure Tours. How may I help you?", 110.0, 140.0),
-    ("B: I want to book a tour with adventure sports.", 110.0, 170.0),
-    ("Key Vocabulary", 100.0, 260.0),
-    ("hot air balloon", 100.0, 300.0),
-    ("P", 380.0, 300.0),
-    ("a huge balloon risen up", 520.0, 300.0),
-    # The definition wraps, as a cell does, and the next term follows a wider
-    # gap below it -- which is what tells the reader one term from the next.
-    ("by hot air", 520.0, 312.0),
-    ("jagged", 100.0, 340.0),
-    ("A", 380.0, 340.0),
-    ("having a sharp surface", 520.0, 340.0),
+    # The running head the printed lessons carry, which the text layer does not
+    # and which spans the columns below it if it is left in.
+    ("EnglishPod", 546.0, 209.0),
+    ("Learn English on your Terms", 1212.0, 238.0),
+    # The code as the service read it: a picture gives back a level letter's
+    # case as it struck the service, and the corpus's own is capitalised.
+    ("The Weekend - Adventure Sports (c0109)", 377.0, 493.0),
+    ("A: Welcome to Adventure Tours. How may I help you?", 398.0, 623.0),
+    ("B: I want to book a tour with adventure sports.", 401.0, 928.0),
+    ("Key Vocabulary", 373.0, 1905.0),
+    ("hot air", 398.0, 2078.0),
+    ("P", 915.0, 2085.0),
+    ("a huge balloon risen up", 1582.0, 2090.0),
+    # Both cells wrap, and the next term follows a wider gap below them --
+    # which is what tells the reader where one term ends and the next begins.
+    ("balloon", 398.0, 2158.0),
+    ("by hot air", 1582.0, 2170.0),
+    ("jagged", 398.0, 2400.0),
+    ("A", 915.0, 2407.0),
+    ("having a sharp surface", 1582.0, 2405.0),
 ]
 
 # The Markdown a text-layer lesson yields, down to the empty table it still

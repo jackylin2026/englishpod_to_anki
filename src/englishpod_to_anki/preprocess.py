@@ -264,7 +264,11 @@ def _dialogue(rows: list[Row]) -> tuple[str | None, tuple[Turn, ...]]:
     is read from the whole title block rather than only up to the first speaker.
     """
     found = CODE.search(" ".join(row.text for row in rows))
-    code = found.group(1) if found else None
+    # A level letter is capitalised in the corpus, and read off a picture it
+    # comes back however the shape of it struck the service. The code is the
+    # note's identity, so it is the corpus's spelling that is kept: a lesson
+    # read by OCR and one read out of a text layer are the same lesson.
+    code = found.group(1).upper() if found else None
 
     first_turn = next((index for index, row in enumerate(rows) if SPEAKER.match(row.text)), None)
     if first_turn is None:

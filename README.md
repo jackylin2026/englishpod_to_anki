@@ -169,12 +169,21 @@ hold text is still read from that text — the service is only ever the answer t
 a page with nothing in it — and a lesson whose Markdown is already written is
 left alone, as in any other run, unless you pass `--force`.
 
-Each page is rendered at 300 dpi and sent on its own, and what comes back is
-every character's position with English grouped into words. That is what a
-vocabulary table needs: three columns, and the gaps between them are what say
-where one cell ends and the next begins. The words are handed to the same reader
-that reads a text layer, so both paths produce the same Markdown and a lesson
-does not depend on which one its PDF arrived by.
+Each page is rendered at 300 dpi and sent on its own, and what comes back is the
+page's printed lines with the position of each — which is what a vocabulary
+table needs, because a printed line is a cell there, and the gaps between them
+are what say where one column ends and the next begins. The lines are handed to
+the same reader that reads a text layer, converted into the units a text layer
+is measured in, so both paths produce the same Markdown and a lesson does not
+depend on which one its PDF arrived by.
+
+If the pass reports that the service's certificate cannot be verified, that is
+this machine's certificate store rather than the network — a Python installed
+without a usable CA bundle. Point it at the system's own:
+
+```
+SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt englishpod-to-anki preprocess /path --ocr
+```
 
 Words the typesetter broke over a line are put back together, and the
 distinction between those and a hyphen the author typed is settled by the

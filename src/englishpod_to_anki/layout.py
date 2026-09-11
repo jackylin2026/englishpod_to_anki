@@ -43,6 +43,13 @@ FOOTER = re.compile(
     re.IGNORECASE,
 )
 
+# Printed at the head of every page of the lessons as the corpus printed them,
+# and belonging to no lesson either. The text layer the corpus also keeps does
+# not carry it, but a page read back off its own picture does -- and a running
+# head spans the whole width of the page, across the gaps between a vocabulary
+# table's columns, so leaving it in flattens the table it sits above.
+HEADER = re.compile(r"^EnglishPod$|LearnEnglishonyourTerms", re.IGNORECASE)
+
 
 @dataclass(frozen=True)
 class Word:
@@ -81,8 +88,14 @@ class Row:
 
     @property
     def squashed(self) -> str:
-        """The row's words with no spaces, for matching a phrase that may be split."""
-        return "".join(word.text for word in self.words)
+        """The row's text with none of its spaces, for matching a printed phrase.
+
+        The spaces are taken off a word's own text as well as the ones between
+        words, because a row read back off a page arrives as whole printed lines
+        rather than as words: a heading and a page's footer have to be matched
+        the same way whichever kind of reading found them.
+        """
+        return "".join(self.text.split())
 
 
 def read_rows(path: Path) -> list[Row]:
@@ -126,9 +139,14 @@ def page_rows(page: int, seen: Sequence[Seen]) -> list[Row]:
                 _rejoin_apostrophes([Word(word.text, word.x0, word.x1) for word in line])
             ),
         )
-        if not FOOTER.search(row.squashed):
+        if not _trappings(row):
             rows.append(row)
     return rows
+
+
+def _trappings(row: Row) -> bool:
+    """Whether a row is the page's own furniture rather than the lesson's."""
+    return bool(FOOTER.search(row.squashed) or HEADER.search(row.squashed))
 
 
 def _rejoin_apostrophes(words: list[Word]) -> list[Word]:

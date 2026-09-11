@@ -13,12 +13,13 @@ posted as a picture against that token. Both values are read from a `.env` file
 rather than from the source or anything else committed, so the tool can carry no
 secret, and a missing one is a sentence to act on rather than a stack trace.
 
-What comes back is words with coordinates -- the same thing the text layer would
-have given -- so a page read this way arrives at the same rows as a page read
-out of the text layer, and the lesson above them is read by the same code. The
-service is asked for the position of every character and to group English into
-words, because a vocabulary table is three columns of text and it is the
-geometry of those words that says where one cell ends and the next begins.
+What comes back is lines of text with coordinates -- the same thing the text
+layer would have given -- so a page read this way arrives at the same rows as a
+page read out of the text layer, and the lesson above them is read by the same
+code. One line is a printed line of the page, and on a vocabulary page a printed
+line is a cell: the term, the part of speech and the definition are three lines
+side by side, which is what lets the columns be found by the same geometry that
+finds them in a text layer.
 """
 
 from __future__ import annotations
@@ -51,6 +52,13 @@ ENV = ".env"
 # print of a vocabulary table to come back whole, and inside the service's own
 # ceiling of 4096 pixels a side.
 RESOLUTION = 300
+
+# The service measures a page in the pixels of the picture it was sent, and
+# everything above it measures one in points -- the unit a text layer is in, and
+# the unit its tolerances are written in. A page rendered at RESOLUTION turns
+# pixels into points at this rate, so a line is put back in the units the rows
+# and columns are worked out in rather than in units of its own.
+POINTS = 72 / RESOLUTION
 
 # A page of pictures takes the service a moment; half a minute is a hung service.
 TIMEOUT = 30
@@ -119,23 +127,31 @@ class Baidu:
         return rows
 
     def words(self, picture: bytes) -> list[Seen]:
-        """The words one page's picture holds, and where each of them sat."""
+        """The lines one page's picture holds, and where each of them sat.
+
+        The service answers a printed line at a time, which is what a lesson's
+        rows are made of -- and where a line is a cell of a vocabulary table,
+        which is what its columns are measured by. The characters the answer
+        also carries are left alone: asked for, they come back with a table's
+        digits and stops split off one by one, and the line is the larger and
+        the truer of the two.
+        """
         answer = self._call(
-            READ,
-            {
-                "access_token": self._token(),
-                "image": base64.b64encode(picture).decode(),
-                # Every character positioned, and English grouped into words:
-                # which is what a column of a vocabulary table is measured by.
-                "recognize_granularity": "small",
-                "eng_granularity": "word",
-            },
+            READ, {"access_token": self._token(), "image": base64.b64encode(picture).decode()}
         )
-        return [
-            Seen(text=text, top=top, x0=left, x1=left + width)
-            for line in answer.get("words_result") or ()
-            for text, left, top, width in _placed(line)
-        ]
+        lines: list[Seen] = []
+        for line in answer.get("words_result") or ():
+            where, text = line.get("location"), line.get("words")
+            if where and text:
+                lines.append(
+                    Seen(
+                        text=text,
+                        top=float(where["top"]) * POINTS,
+                        x0=float(where["left"]) * POINTS,
+                        x1=float(where["left"] + where["width"]) * POINTS,
+                    )
+                )
+        return lines
 
     def _token(self) -> str:
         """The token a page is posted against, asked for once.
@@ -183,24 +199,6 @@ class Baidu:
                 f"({answer['error_code']})"
             )
         return answer
-
-
-def _placed(line: Mapping[str, Any]) -> list[tuple[str, float, float, float]]:
-    """One line of an answer as words with coordinates.
-
-    A line asked for character positions answers with them, and each is a word
-    when English is grouped that way -- which is what the rows are made of. A
-    line that answers without them is all that there is of it, so it is taken
-    whole rather than dropped.
-    """
-    located = line.get("chars") or [line]
-    placed: list[tuple[str, float, float, float]] = []
-    for part in located:
-        text = (part.get("char") or part.get("words") or "").strip()
-        where = part.get("location") or {}
-        if text and where:
-            placed.append((text, float(where["left"]), float(where["top"]), float(where["width"])))
-    return placed
 
 
 def pages(path: Path) -> list[bytes]:
