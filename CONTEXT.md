@@ -20,6 +20,10 @@ _Avoid_: lesson folder, lesson path
 The directory the corpus nests its later lessons by the ten in. It holds lessons and the combined PDF of them, and is a container rather than a lesson: what it holds is the lessons, and the PDF beside them belongs to no one lesson.
 _Avoid_: group, folder
 
+**Ignored directory**:
+A directory the corpus's owner declares out of scope in the `.englishpodignore` file at the corpus root, by its own name or by its path from that root. Nothing about it was declined, because it is not a lesson: the walk neither looks inside it nor names it in a run.
+_Avoid_: skipped directory, ignored lesson
+
 **Lesson code**:
 The identifier printed in a lesson PDF's header — a level letter and four digits, such as `C0108`. Always read from the PDF; never inferred from a filename, which disagrees with it in a small number of cases.
 _Avoid_: lesson number, file name

@@ -33,6 +33,20 @@ def lesson_codes(result: subprocess.CompletedProcess[str]) -> list[str]:
     return [note["lesson_code"] for note in notes(result)]
 
 
+def crowded(corpus: Path, name: str = "host text", files: int = 6) -> Path:
+    """A directory of PDFs that is not a lesson, as the corpus's transcripts are."""
+    directory = corpus / name
+    directory.mkdir()
+    for number in range(files):
+        (directory / f"{number:03d} - A Customer.pdf").write_bytes(b"")
+    return directory
+
+
+def ignoring(corpus: Path, *entries: str) -> None:
+    """Write the corpus's ignore file, the way its owner would."""
+    (corpus / ".englishpodignore").write_text("\n".join(entries) + "\n", encoding="utf-8")
+
+
 def test_a_run_builds_every_lesson_the_corpus_holds(corpus: Path, run_cli) -> None:
     result = run_cli("build", corpus)
 
@@ -223,10 +237,7 @@ def test_a_directory_of_transcripts_beside_the_lessons_is_reported_once(
     in silence: it is reported once, naming a few of its files and counting the
     rest rather than printing all 178.
     """
-    transcripts = pdf_corpus / "host text"
-    transcripts.mkdir()
-    for number in range(6):
-        (transcripts / f"{number:03d} - A Customer.pdf").write_bytes(b"")
+    transcripts = crowded(pdf_corpus)
 
     result = run_cli("preprocess", pdf_corpus)
 
@@ -261,3 +272,120 @@ def test_preprocess_counts_the_markdown_files_it_leaves_alone(
     assert result.returncode == 0, result.stderr
     assert "wrote" not in result.stdout
     assert "preprocess: 2 lessons: 1 already had a Markdown file, 1 skipped" in result.stderr
+
+
+def test_an_ignored_directory_is_not_a_lesson_and_is_not_reported(
+    corpus: Path, run_cli
+) -> None:
+    """A directory the owner declares out of scope is not looked at, or named."""
+    transcripts = crowded(corpus)
+    ignoring(corpus, "host text")
+
+    result = run_cli("build", corpus)
+
+    assert result.returncode == 0, result.stderr
+    assert str(transcripts) not in result.stderr
+    # The four lessons the fixture holds, and not the transcript directory as a
+    # fifth: the count is one lower than it is without the ignore file.
+    assert "build: 4 lessons: 2 built, 2 skipped" in result.stderr
+
+
+def test_an_ignore_file_leaves_the_rest_of_the_corpus_alone(corpus: Path, run_cli) -> None:
+    """Whatever the file names, the lessons it does not are worked on as before."""
+    ignoring(corpus, "0001")
+
+    result = run_cli("build", corpus)
+
+    assert lesson_codes(result) == ["C0108", "B0110"]
+    assert "build: 3 lessons: 2 built, 1 skipped" in result.stderr
+    # The ignored lesson is gone from the summary rather than reported in it:
+    # nothing was declined, because as far as the run is concerned it is not a
+    # lesson.
+    assert "0001" not in result.stderr
+
+
+def test_a_path_entry_ignores_a_nested_directory(corpus: Path, run_cli) -> None:
+    ignoring(corpus, f"{BATCH}/0111")
+
+    result = run_cli("build", corpus)
+
+    assert result.returncode == 0, result.stderr
+    assert "build: 3 lessons: 2 built, 1 skipped" in result.stderr
+    assert "F0111" not in lesson_codes(result)
+
+
+def test_a_name_entry_ignores_a_directory_at_any_depth(corpus: Path, run_cli) -> None:
+    """A bare name is matched wherever the directory sits, which is also how it
+    over-matches: `0111` hides `{BATCH}/0111` without naming it."""
+    ignoring(corpus, "0111")
+
+    result = run_cli("build", corpus)
+
+    assert result.returncode == 0, result.stderr
+    assert "build: 3 lessons: 2 built, 1 skipped" in result.stderr
+    assert "F0111" not in lesson_codes(result)
+
+
+def test_an_absolute_path_in_the_ignore_file_names_the_same_directory(
+    corpus: Path, run_cli
+) -> None:
+    """The path the owner has in front of them is the path they can write."""
+    ignoring(corpus, f"{corpus / BATCH / '0111'}/")
+
+    result = run_cli("build", corpus)
+
+    assert result.returncode == 0, result.stderr
+    assert "build: 3 lessons: 2 built, 1 skipped" in result.stderr
+
+
+def test_comments_and_blank_lines_in_the_ignore_file_are_not_entries(
+    corpus: Path, run_cli
+) -> None:
+    ignoring(corpus, "# 0111 was going to be ignored", "", "   ", "#0001")
+
+    result = run_cli("build", corpus)
+
+    assert result.returncode == 0, result.stderr
+    assert "build: 4 lessons: 2 built, 2 skipped" in result.stderr
+
+
+def test_an_entry_that_matches_nothing_leaves_the_run_anyway(corpus: Path, run_cli) -> None:
+    """A stale entry excludes nothing, and a directory comes back to the report.
+
+    This is what keeps an ignore file's staleness loud: what it fails to exclude
+    is discovered and named, rather than quietly missing from the run.
+    """
+    ignoring(corpus, "a directory that is not there")
+
+    result = run_cli("build", corpus)
+
+    assert result.returncode == 0, result.stderr
+    assert "build: 4 lessons: 2 built, 2 skipped" in result.stderr
+
+
+def test_a_stage_pointed_at_an_ignored_directory_still_works(corpus: Path, run_cli) -> None:
+    """An explicit path is not discovery: naming a directory asks for it."""
+    ignoring(corpus, "0108")
+
+    result = run_cli("build", corpus / "0108")
+
+    assert result.returncode == 0, result.stderr
+    assert lesson_codes(result) == ["C0108"]
+
+
+def test_ignoring_every_lesson_of_a_batch_leaves_the_batch_directory_a_lesson(
+    corpus: Path, run_cli
+) -> None:
+    """The lessons go; the directory that held them takes their place, reported.
+
+    With its lessons excluded, the batch directory holds a combined PDF and no
+    lesson beneath it, which is what a lesson directory looks like -- so it is
+    reported as one rather than vanishing along with them.
+    """
+    ignoring(corpus, f"{BATCH}/0110", f"{BATCH}/0111")
+
+    result = run_cli("build", corpus)
+
+    assert result.returncode == 0, result.stderr
+    assert "build: 3 lessons: 1 built, 2 skipped" in result.stderr
+    assert f"{corpus / BATCH} holds no Markdown" in result.stderr

@@ -40,18 +40,18 @@ A run over the corpus ends with a summary of the lessons it skipped, named with
 the reason each was given:
 
 ```
-preprocess: 366 lessons: 217 written, 149 skipped
+preprocess: 365 lessons: 219 written, 146 skipped
 skipped:
-  /path/to/corpus/英语博客51-100/ENGLISHPOD主持人对话文本 holds more than one PDF: 001 - Difficult Customer.pdf, 002 - Calling In Sick.pdf, 003 - Hotel Upgrade.pdf, and 175 more
   /path/to/corpus/英语博客100-150/0135/135.pdf has no text layer; it needs the OCR pass
   /path/to/corpus/英语博客251-300/0251-0260/0251/EnglishPod.Intro.0251.pdf carries no lesson code
 ```
 
-That is the whole corpus the tool was built against, measured, and the 149 are
+That is the whole corpus the tool was built against, measured, and the 146 are
 worth knowing about before a first run: 69 are image-only scans that want the
-OCR pass, 77 are the lesson-introduction sheets the batches above 250 keep in
-place of a lesson PDF (the lesson itself is in the batch's combined PDF), and 3
-directories hold more than one PDF and are declined rather than guessed about.
+OCR pass, and 77 are the lesson-introduction sheets the batches above 250 keep in
+place of a lesson PDF (the lesson itself is in the batch's combined PDF). The
+corpus's own `.englishpodignore` names its host-transcript directory, which is
+not a lesson and used to be reported as one.
 
 A lesson missing its dialogue audio, or one whose dialogue carries none of its
 Key Vocabulary to blank, is skipped rather than turned into a card that looks
@@ -59,6 +59,38 @@ complete and isn't. One unreadable lesson never stops the run — a file that is
 not a readable PDF, a PDF with no text layer, a Markdown with no lesson code —
 but a run that worked on no lesson at all exits non-zero, so a script cannot
 mistake it for success.
+
+### Directories that are not lessons
+
+A corpus holds material that belongs to no lesson, and a directory of it would
+otherwise be read as one. Name it in `.englishpodignore`, at the root you point
+the stage at, and the run neither looks inside it nor reports it:
+
+```
+# /path/to/corpus/.englishpodignore
+
+# Host transcripts: a directory of PDFs that belongs to no lesson
+ENGLISHPOD主持人对话文本/
+
+# A path from the corpus root, for a directory whose bare name is too broad
+英语博客51-100/pdf-backups
+```
+
+An entry is either a directory's own name — matched wherever it sits, at any
+depth — or its path from the corpus root; an absolute path that lands under the
+corpus is understood as the same thing. Matching is exact: no globs, no
+prefixes, because a pattern that over-matches takes lessons out of every run
+without saying so. Three things follow from that, worth knowing before you edit
+the file:
+
+- Only the file at the directory you point the stage at is read. Pointing at one
+  batch directory does not consult the corpus root's file.
+- A bare name is the broad one: `0111` hides every directory called `0111`,
+  wherever it sits. Use the path form to be specific.
+- An entry that matches a lesson directory removes that lesson from every run,
+  and nothing says so — the run simply holds one lesson fewer. An entry that
+  matches nothing changes nothing at all, and the directory it once named turns
+  up in the skipped list again.
 
 ## Setup
 

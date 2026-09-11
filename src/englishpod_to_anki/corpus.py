@@ -31,6 +31,14 @@ from .lesson import LessonError
 # preprocessed is one whose Markdown sits beside its PDF.
 LESSON_FILES = ("*.pdf", "*.mp3", "*.md")
 
+# Where the corpus's owner declares a directory out of scope: one entry to a
+# line, at the root a stage is pointed at. It is the one file the tool asks of a
+# corpus it otherwise reads where it lies.
+IGNORE_FILE = ".englishpodignore"
+
+# What one of those declarations is asked of a directory the walk meets.
+Excluded = Callable[[Path], bool]
+
 Result = TypeVar("Result")
 
 
@@ -42,33 +50,103 @@ def lessons(root: Path) -> tuple[Path, ...]:
     batch directories that nest the corpus's later lessons carry a combined PDF
     of the lessons they hold, and it is the lessons inside them that are the
     lessons, not the folder that gathers them.
+
+    The one directory the layout cannot decide is the one the corpus's owner
+    declares: a directory named in `.englishpodignore` is not a lesson, and the
+    walk neither descends into it nor reports it.
     """
+    excluded = _excluded(root)
     return tuple(
-        sorted(lesson for child in _children(root) for lesson in _lessons_under(child))
+        sorted(
+            lesson
+            for child in _children(root, excluded)
+            for lesson in _lessons_under(child, excluded)
+        )
     )
 
 
-def _lessons_under(directory: Path) -> list[Path]:
+def _lessons_under(directory: Path, excluded: Excluded) -> list[Path]:
     """Every lesson directory at or under one directory.
 
     A directory holding lesson files is not a lesson when it holds lesson
     directories too: what it holds is the lessons, and the files beside them
     belong to no one lesson.
     """
-    inside = [lesson for child in _children(directory) for lesson in _lessons_under(child)]
+    inside = [
+        lesson
+        for child in _children(directory, excluded)
+        for lesson in _lessons_under(child, excluded)
+    ]
     if inside:
         return inside
     return [directory] if _holds_lesson_files(directory) else []
 
 
-def _children(directory: Path) -> list[Path]:
+def _children(directory: Path, excluded: Excluded) -> list[Path]:
+    """A directory's subdirectories, without the ones declared out of scope.
+
+    An excluded directory is left out here rather than tested for later, so that
+    it is neither descended into as a container nor taken for a lesson by the
+    directory that holds it.
+    """
     if not directory.is_dir():
         return []
-    return sorted(path for path in directory.iterdir() if path.is_dir())
+    return sorted(
+        path for path in directory.iterdir() if path.is_dir() and not excluded(path)
+    )
 
 
 def _holds_lesson_files(directory: Path) -> bool:
     return any(any(directory.glob(pattern)) for pattern in LESSON_FILES)
+
+
+def _excluded(root: Path) -> Excluded:
+    """Whether a directory is one the corpus's owner has declared out of scope.
+
+    Matching is exact -- a name, or a path from the root -- and never a glob or
+    a prefix, because a pattern that over-matches takes lessons out of every run
+    without saying so. The direction to fail in is the other one: an entry that
+    matches nothing leaves the run exactly as it was.
+    """
+    entries = _entries(root)
+    return lambda directory: (
+        directory.name in entries or _path_from(root, directory) in entries
+    )
+
+
+def _entries(root: Path) -> frozenset[str]:
+    """The ignore file's entries, as written, with comments and blanks dropped."""
+    try:
+        text = (root / IGNORE_FILE).read_text(encoding="utf-8")
+    except OSError:
+        return frozenset()
+    return frozenset(_entry(line, root) for line in text.splitlines() if _is_entry(line))
+
+
+def _is_entry(line: str) -> bool:
+    text = line.strip()
+    return bool(text) and not text.startswith("#")
+
+
+def _entry(line: str, root: Path) -> str:
+    """One line as what it names: a directory's name, or its path from the root.
+
+    An absolute path that lands under the corpus is kept as the path from the
+    root, so that the way a person has the directory in front of them -- however
+    they copied it -- is a way they can write it down.
+    """
+    text = line.strip().rstrip("/")
+    path = Path(text)
+    if not path.is_absolute():
+        return text
+    try:
+        return _path_from(root, path)
+    except ValueError:
+        return text
+
+
+def _path_from(root: Path, path: Path) -> str:
+    return str(path.relative_to(root))
 
 
 @dataclass(frozen=True)
