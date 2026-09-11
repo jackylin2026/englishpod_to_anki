@@ -21,7 +21,7 @@ The directory the corpus nests its later lessons by the ten in. It holds lessons
 _Avoid_: group, folder
 
 **Ignored directory**:
-A directory the corpus's owner declares out of scope in the `.englishpodignore` file at the corpus root, by its own name or by its path from that root. Nothing about it was declined, because it is not a lesson: the walk neither looks inside it nor names it in a run.
+A directory the corpus's owner declares out of scope in the `.englishpodignore` file at the root a stage is pointed at, by its own name or by its path from that root. Nothing about it was declined, because it is not a lesson: the walk neither looks inside it nor names it in a run.
 _Avoid_: skipped directory, ignored lesson
 
 **Lesson code**:

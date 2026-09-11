@@ -63,8 +63,9 @@ mistake it for success.
 ### Directories that are not lessons
 
 A corpus holds material that belongs to no lesson, and a directory of it would
-otherwise be read as one. Name it in `.englishpodignore`, at the root you point
-the stage at, and the run neither looks inside it nor reports it:
+otherwise be read as one. Such a directory is *ignored* by naming it in
+`.englishpodignore`, at the root you point the stage at — the run then neither
+looks inside it nor reports it:
 
 ```
 # /path/to/corpus/.englishpodignore
@@ -78,19 +79,23 @@ ENGLISHPOD主持人对话文本/
 
 An entry is either a directory's own name — matched wherever it sits, at any
 depth — or its path from the corpus root; an absolute path that lands under the
-corpus is understood as the same thing. Matching is exact: no globs, no
-prefixes, because a pattern that over-matches takes lessons out of every run
-without saying so. Three things follow from that, worth knowing before you edit
-the file:
+corpus is understood as the same thing, and a `#` opens a comment line (so a
+directory whose own name begins with `#` cannot be named here). Matching is
+exact: no globs, no prefixes, because a pattern that over-matches takes lessons
+out of every run without saying so. Three things follow from that, worth knowing
+before you edit the file:
 
 - Only the file at the directory you point the stage at is read. Pointing at one
   batch directory does not consult the corpus root's file.
 - A bare name is the broad one: `0111` hides every directory called `0111`,
   wherever it sits. Use the path form to be specific.
-- An entry that matches a lesson directory removes that lesson from every run,
-  and nothing says so — the run simply holds one lesson fewer. An entry that
-  matches nothing changes nothing at all, and the directory it once named turns
-  up in the skipped list again.
+- What an entry hides, it hides in silence: a lesson directory named there is
+  simply one lesson fewer in the run, and a *batch* directory named there takes
+  its ten lessons with it, and the combined PDF that would otherwise have been
+  reported in their place. An entry that matches nothing changes nothing at all,
+  and the directory it once named turns up in the skipped list again.
+- A file the tool cannot read — bytes that are not UTF-8 — stops the run and
+  says so, rather than running on without the exclusions it declares.
 
 ## Setup
 

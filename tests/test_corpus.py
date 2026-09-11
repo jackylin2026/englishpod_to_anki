@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from os.path import relpath
 from pathlib import Path
 
 from conftest import BATCH
@@ -298,7 +299,7 @@ def test_an_ignore_file_leaves_the_rest_of_the_corpus_alone(corpus: Path, run_cl
 
     assert lesson_codes(result) == ["C0108", "B0110"]
     assert "build: 3 lessons: 2 built, 1 skipped" in result.stderr
-    # The ignored lesson is gone from the summary rather than reported in it:
+    # The ignored directory is gone from the summary rather than reported in it:
     # nothing was declined, because as far as the run is concerned it is not a
     # lesson.
     assert "0001" not in result.stderr
@@ -364,13 +365,74 @@ def test_an_entry_that_matches_nothing_leaves_the_run_anyway(corpus: Path, run_c
 
 
 def test_a_stage_pointed_at_an_ignored_directory_still_works(corpus: Path, run_cli) -> None:
-    """An explicit path is not discovery: naming a directory asks for it."""
-    ignoring(corpus, "0108")
+    """An explicit path is not discovery: the directory pointed at is never asked.
+
+    The file is read from the directory the stage is pointed at, and that
+    directory is not tested against its own entries -- so a lesson named in the
+    file beside it is still the lesson the stage was asked for.
+    """
+    ignoring(corpus / "0108", "0108")
 
     result = run_cli("build", corpus / "0108")
 
     assert result.returncode == 0, result.stderr
     assert lesson_codes(result) == ["C0108"]
+
+
+def test_an_absolute_entry_names_the_directory_from_a_relative_root(
+    corpus: Path, run_cli
+) -> None:
+    """The corpus can be given as a path relative to where the stage is run."""
+    ignoring(corpus, str(corpus / "0108"))
+    relative = Path(relpath(corpus, Path.cwd()))
+
+    result = run_cli("build", relative)
+
+    assert result.returncode == 0, result.stderr
+    assert "build: 3 lessons: 1 built, 2 skipped" in result.stderr
+    assert "C0108" not in lesson_codes(result)
+
+
+def test_an_entry_that_names_a_batch_directory_takes_its_lessons_with_it(
+    corpus: Path, run_cli
+) -> None:
+    """The dangerous direction: an entry broad enough to hide several lessons.
+
+    A batch directory is pruned before anything decides what it is, so ignoring
+    one takes its lessons and its combined PDF out of the run together, and
+    nothing surfaces to say so.
+    """
+    ignoring(corpus, BATCH)
+
+    result = run_cli("build", corpus)
+
+    assert result.returncode == 0, result.stderr
+    assert "build: 2 lessons: 1 built, 1 skipped" in result.stderr
+    assert lesson_codes(result) == ["C0108"]
+    assert "F0111" not in result.stderr and "B0110" not in result.stderr
+
+
+def test_a_byte_order_mark_does_not_disable_the_first_entry(corpus: Path, run_cli) -> None:
+    """An editor that writes a byte-order mark must not silently drop an entry."""
+    (corpus / ".englishpodignore").write_text("0108\n", encoding="utf-8-sig")
+
+    result = run_cli("build", corpus)
+
+    assert result.returncode == 0, result.stderr
+    assert "build: 3 lessons: 1 built, 2 skipped" in result.stderr
+    assert "C0108" not in lesson_codes(result)
+
+
+def test_an_ignore_file_that_cannot_be_read_is_reported(corpus: Path, run_cli) -> None:
+    """The owner is told the file cannot be read, rather than shown a traceback."""
+    (corpus / ".englishpodignore").write_bytes("英语\n".encode("gbk"))
+
+    result = run_cli("build", corpus)
+
+    assert result.returncode == 1
+    assert "cannot read" in result.stderr
+    assert ".englishpodignore" in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_ignoring_every_lesson_of_a_batch_leaves_the_batch_directory_a_lesson(
