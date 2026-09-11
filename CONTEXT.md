@@ -40,6 +40,10 @@ _Avoid_: ten-lesson PDF
 The one-page PDF the corpus keeps above 250 where a lesson's own PDF would be. It names the lesson and says what it is about, and carries no lesson code, no dialogue and no vocabulary — which is why a lesson holding one is read out of the batch's PDF instead.
 _Avoid_: intro PDF, the lesson intro
 
+**OCR pass**:
+The reading of a lesson whose PDF holds no text at all — a page printed to outlines, where the text layer would have been. It renders each page, has it read by a service reached over the network and billed by the page, and gives back the same rows a text layer would have. Asked for with `--ocr` rather than being part of a run, because a run over the corpus must depend on neither the service nor its credentials nor its cost.
+_Avoid_: OCR stage, scanning, image pass
+
 **Print transcript**:
 The condensed corpus-wide PDF containing dialogues for most lessons, and no vocabulary at all.
 _Avoid_: the print PDF, the condensed PDF

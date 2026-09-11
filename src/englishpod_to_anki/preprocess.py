@@ -8,6 +8,7 @@ enough to be edited by hand.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -47,6 +48,11 @@ SUPPLEMENTARY_HEADING = "SupplementaryVocabulary"
 TERM_COLUMN, PART_OF_SPEECH_COLUMN, DEFINITION_COLUMN = 0, 1, 2
 
 
+# What the OCR pass is to this stage: something that reads a lesson's rows back
+# out of a page that holds no text, and nothing else about it.
+Reader = Callable[[Path], list[Row]]
+
+
 @dataclass(frozen=True)
 class Preprocessed:
     """What preprocess did with one lesson."""
@@ -55,13 +61,19 @@ class Preprocessed:
     written: bool
 
 
-def preprocess_lesson(lesson_dir: Path, *, force: bool = False) -> Preprocessed:
+def preprocess_lesson(
+    lesson_dir: Path, *, force: bool = False, reader: Reader | None = None
+) -> Preprocessed:
     """Write the lesson's Markdown beside its PDF -- or into its directory when
     the lesson is not in that PDF at all.
 
     Above 250 the corpus keeps an introduction sheet where a lesson's own PDF
     would be, and the lessons themselves in the batch's PDF one directory up, so
     a lesson the sheet carries no code for is read out of the PDF beside it.
+
+    A lesson whose PDF holds no text at all is one preprocess cannot read, and
+    says so -- unless a `reader` is given, which is the OCR pass, and then the
+    lesson is read back out of the page's pictures instead.
 
     An existing Markdown file is left alone unless `force`, so that a hand
     correction survives a re-run.
@@ -76,8 +88,23 @@ def preprocess_lesson(lesson_dir: Path, *, force: bool = False) -> Preprocessed:
     if markdown.exists() and not force:
         return Preprocessed(markdown=markdown, written=False)
 
-    lesson = lesson_in(_rows(pdf))
+    rows = read_rows(pdf)
+    scanned = not rows
+    if scanned and reader is not None:
+        rows = reader(pdf)
+        if not rows:
+            # A page the service read nothing off is not one to describe as
+            # needing the pass that has just read it.
+            raise LessonError(f"the OCR pass read no text off {pdf}")
+    if not rows:
+        raise LessonError(f"{pdf} has no text layer; it needs the OCR pass")
+
+    lesson = lesson_in(rows)
     if lesson is None:
+        if scanned:
+            # Nothing beside a page of pictures carries the lesson: what the OCR
+            # pass made of it is all there is, so it is not looked for further.
+            raise LessonError(f"{pdf} carries no lesson code")
         lesson = lesson_in(_lesson_beside(lesson_dir, pdf))
         if lesson is None:  # a slice of a batch begins at a lesson code
             raise LessonError(f"{pdf} carries no lesson code")

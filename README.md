@@ -131,6 +131,51 @@ Pass `--force` to regenerate it after a parser fix. A run over the corpus says
 how many files it wrote and counts the ones it left as they were, rather than
 repeating the way to regenerate them for every lesson.
 
+### Lessons with no text layer
+
+Around seventy lessons in the corpus were printed to pictures rather than to
+text, so the file holds nothing to read. An ordinary run leaves them alone and
+says why:
+
+```
+preprocess: 365 lessons: 296 written, 69 skipped
+skipped:
+  /path/to/corpus/英语博客201-250/0239/239.pdf has no text layer; it needs the OCR pass
+```
+
+`--ocr` reads those lessons back out of their pictures and writes the same
+Markdown as any other lesson, to be read and corrected the same way:
+
+```
+englishpod-to-anki preprocess /path/to/corpus/英语博客201-250/0239 --ocr
+englishpod-to-anki preprocess /path/to/corpus --ocr
+```
+
+The text is read by Baidu's OCR service (通用文字识别（含位置高精度版）), which
+issues a key and a secret in its console. They belong in a `.env` file in the
+directory you run the tool from — `.env` is in `.gitignore`, so a key cannot be
+committed by accident:
+
+```
+# .env
+BAIDU_OCR_API_KEY=...
+BAIDU_OCR_SECRET_KEY=...
+```
+
+The pass is separate from an ordinary run deliberately: it needs the network,
+the service's key and a page-by-page bill, and none of those should stand
+between you and a run over the corpus. With `--ocr`, a lesson whose PDF *does*
+hold text is still read from that text — the service is only ever the answer to
+a page with nothing in it — and a lesson whose Markdown is already written is
+left alone, as in any other run, unless you pass `--force`.
+
+Each page is rendered at 300 dpi and sent on its own, and what comes back is
+every character's position with English grouped into words. That is what a
+vocabulary table needs: three columns, and the gaps between them are what say
+where one cell ends and the next begins. The words are handed to the same reader
+that reads a text layer, so both paths produce the same Markdown and a lesson
+does not depend on which one its PDF arrived by.
+
 Words the typesetter broke over a line are put back together, and the
 distinction between those and a hyphen the author typed is settled by the
 offline dictionary (`cmudict`): `immac-` / `ulate` becomes `immaculate`, while
@@ -248,7 +293,9 @@ Markdown, the emitted note, and the requests an import makes — never on its
 internals. They need no network, no Anki and no OCR credentials: `import` is
 driven against `tests/stub_anki.py`, a stand-in AnkiConnect holding the notes a
 test puts in it and recording what it was asked to do — which is how a replace
-is shown to leave a card's scheduling where it found it.
+is shown to leave a card's scheduling where it found it — and `preprocess --ocr`
+against `tests/stub_ocr.py`, a stand-in OCR service that reads back whatever a
+test says the page says.
 
 The sample lesson they run against is drawn by
 `tests/fixtures/make_sample_lesson.py`, which copies the *geometry* of a real

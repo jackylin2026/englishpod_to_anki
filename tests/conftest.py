@@ -110,12 +110,15 @@ def run_cli():
     whatever the terminal running the tests happens to be holding.
     """
 
-    def run(*arguments: object, input: str = "") -> subprocess.CompletedProcess[str]:
+    def run(
+        *arguments: object, input: str = "", cwd: Path | None = None
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, "-m", "englishpod_to_anki", *(str(a) for a in arguments)],
             capture_output=True,
             text=True,
             input=input,
+            cwd=cwd,
             env={**os.environ, "PYTHONPATH": str(SRC)},
         )
 

@@ -14,6 +14,7 @@ import shutil
 from pathlib import Path
 
 from conftest import BATCH
+from stub_ocr import StubOcr
 
 MARKDOWN = "englishpod_D0108.md"
 
@@ -414,3 +415,178 @@ def test_a_directory_holding_too_many_pdfs_names_a_few_of_them(
     assert "holds more than one PDF" in result.stderr
     assert "and 4 more" in result.stderr
     assert len(result.stderr) < 200
+
+
+# A lesson whose PDF holds no text at all is read back out of its pictures by
+# the OCR pass, which is a pass of its own because it reaches a service over the
+# network and costs money to call. Nothing here reaches one: `tests/stub_ocr.py`
+# answers for it, and a page goes up and comes back the way a real page would.
+
+SCANNED = "englishpod_C0109.md"
+KEY, SECRET = "BAIDU_OCR_API_KEY", "BAIDU_OCR_SECRET_KEY"
+
+# One page of an EnglishPod lesson, at the coordinates a page is printed at: a
+# title carrying the code, two speakers, and a vocabulary table of three
+# columns. What the service answers with is where the words were; what the
+# lesson is stays the reader's to work out, and it is the same reader.
+PAGE = [
+    ("The Weekend - Adventure Sports (C0109)", 100.0, 100.0),
+    ("A: Welcome to Adventure Tours. How may I help you?", 110.0, 140.0),
+    ("B: I want to book a tour with adventure sports.", 110.0, 170.0),
+    ("Key Vocabulary", 100.0, 260.0),
+    ("hot air balloon", 100.0, 300.0),
+    ("P", 380.0, 300.0),
+    ("a huge balloon risen up", 520.0, 300.0),
+    # The definition wraps, as a cell does, and the next term follows a wider
+    # gap below it -- which is what tells the reader one term from the next.
+    ("by hot air", 520.0, 312.0),
+    ("jagged", 100.0, 340.0),
+    ("A", 380.0, 340.0),
+    ("having a sharp surface", 520.0, 340.0),
+]
+
+# The Markdown a text-layer lesson yields, down to the empty table it still
+# prints: what the OCR pass produces is the same file with different words in it.
+EXPECTED_SCAN = """\
+# C0109
+
+## Dialogue
+
+A: Welcome to Adventure Tours. How may I help you?
+
+B: I want to book a tour with adventure sports.
+
+## Key Vocabulary
+
+| Term | Part of speech | Definition |
+| --- | --- | --- |
+| hot air balloon | P | a huge balloon risen up by hot air |
+| jagged | A | having a sharp surface |
+
+## Supplementary Vocabulary
+
+| Term | Part of speech | Definition |
+| --- | --- | --- |
+"""
+
+
+def keyed(directory: Path, *, key: str | None = "stub-key", secret: str | None = "stub-secret") -> Path:
+    """A directory to run from, holding the `.env` the OCR pass reads.
+
+    The file is kept out of the repository, so a run is given a directory of its
+    own to find it in rather than the one the tests are being run from.
+    """
+    lines = [f"{name}={value}" for name, value in ((KEY, key), (SECRET, secret)) if value]
+    (directory / ".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return directory
+
+
+def test_a_lesson_with_no_text_layer_is_read_out_of_its_pictures(
+    scanned_lesson: Path, run_cli, tmp_path: Path
+) -> None:
+    """The pass writes the same Markdown a text-layer lesson yields."""
+    service = StubOcr(PAGE)
+    try:
+        result = run_cli(
+            "preprocess", scanned_lesson, "--ocr", "--ocr-url", service.url, cwd=keyed(tmp_path)
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert (scanned_lesson / SCANNED).read_text(encoding="utf-8") == EXPECTED_SCAN
+        assert len(service.asked_for("/rest/2.0/ocr/v1/accurate")) == 1
+    finally:
+        service.close()
+
+
+def test_a_missing_credentials_file_is_reported_before_anything_is_read(
+    scanned_lesson: Path, run_cli, tmp_path: Path
+) -> None:
+    """No key is a sentence to act on, and no page is sent looking for one."""
+    service = StubOcr(PAGE)
+    try:
+        result = run_cli("preprocess", scanned_lesson, "--ocr", "--ocr-url", service.url, cwd=tmp_path)
+
+        assert result.returncode == 1
+        assert ".env" in result.stderr
+        assert KEY in result.stderr and SECRET in result.stderr
+        assert service.requests == []
+        assert not (scanned_lesson / SCANNED).exists()
+    finally:
+        service.close()
+
+
+def test_a_credentials_file_missing_one_value_says_which(
+    scanned_lesson: Path, run_cli, tmp_path: Path
+) -> None:
+    """Half a key is a different sentence from no file at all."""
+    result = run_cli(
+        "preprocess", scanned_lesson, "--ocr", cwd=keyed(tmp_path, secret=None)
+    )
+
+    assert result.returncode == 1
+    assert SECRET in result.stderr
+    assert KEY not in result.stderr
+
+
+def test_an_ordinary_run_needs_no_credentials_and_sends_no_page(
+    scanned_lesson: Path, run_cli, tmp_path: Path
+) -> None:
+    """A page of pictures is still the run's own business, and says so."""
+    service = StubOcr(PAGE)
+    try:
+        result = run_cli("preprocess", scanned_lesson, "--ocr-url", service.url, cwd=tmp_path)
+
+        assert result.returncode == 1
+        assert "has no text layer; it needs the OCR pass" in result.stderr
+        assert service.requests == []
+    finally:
+        service.close()
+
+
+def test_a_page_the_service_will_not_read_is_reported(
+    scanned_lesson: Path, run_cli, tmp_path: Path
+) -> None:
+    """A bad key or a spent quota is a message, not a traceback."""
+    service = StubOcr(PAGE)
+    service.refuse("Access token invalid or no longer valid")
+    try:
+        result = run_cli(
+            "preprocess", scanned_lesson, "--ocr", "--ocr-url", service.url, cwd=keyed(tmp_path)
+        )
+
+        assert result.returncode == 1
+        assert "Access token invalid" in result.stderr
+        assert not (scanned_lesson / SCANNED).exists()
+    finally:
+        service.close()
+
+
+def test_an_unreachable_ocr_service_is_reported(
+    scanned_lesson: Path, run_cli, tmp_path: Path
+) -> None:
+    result = run_cli(
+        "preprocess", scanned_lesson, "--ocr", "--ocr-url", "http://127.0.0.1:1",
+        cwd=keyed(tmp_path),
+    )
+
+    assert result.returncode == 1
+    assert "cannot reach the OCR service" in result.stderr
+
+
+def test_the_ocr_pass_leaves_an_existing_markdown_alone(
+    scanned_lesson: Path, run_cli, tmp_path: Path
+) -> None:
+    """A corrected Markdown is not re-read over by a pass that costs money."""
+    mine = scanned_lesson / SCANNED
+    mine.write_text("# C0109\n", encoding="utf-8")
+    service = StubOcr(PAGE)
+    try:
+        result = run_cli(
+            "preprocess", scanned_lesson, "--ocr", "--ocr-url", service.url, cwd=keyed(tmp_path)
+        )
+
+        assert mine.read_text(encoding="utf-8") == "# C0109\n"
+        assert service.requests == []
+        assert "already exists" in result.stdout
+    finally:
+        service.close()

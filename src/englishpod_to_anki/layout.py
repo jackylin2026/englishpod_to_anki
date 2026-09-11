@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 import pdfplumber
 from pdfplumber.utils.exceptions import PdfminerException
@@ -52,6 +52,21 @@ class Word:
 
 
 @dataclass(frozen=True)
+class Seen:
+    """One word as it was found on a page: its text, and where it sat.
+
+    A word is one either way it is found -- read out of the text layer, or read
+    back out of a picture by the OCR pass -- so that both kinds arrive at the
+    same rows, and the lesson read off them is read by the same code.
+    """
+
+    text: str
+    top: float
+    x0: float
+    x1: float
+
+
+@dataclass(frozen=True)
 class Row:
     """One physical line of a page."""
 
@@ -83,20 +98,36 @@ def read_rows(path: Path) -> list[Row]:
     try:
         with pdfplumber.open(path) as pdf:
             for number, page in enumerate(pdf.pages):
-                for line in _lines(_words(page)):
-                    row = Row(
-                        page=number,
-                        top=max(word["top"] for word in line),
-                        words=tuple(
-                            _rejoin_apostrophes(
-                                [Word(word["text"], word["x0"], word["x1"]) for word in line]
-                            )
-                        ),
-                    )
-                    if not FOOTER.search(row.squashed):
-                        rows.append(row)
+                rows += page_rows(
+                    number,
+                    [
+                        Seen(text=word["text"], top=word["top"], x0=word["x0"], x1=word["x1"])
+                        for word in _words(page)
+                    ],
+                )
     except (OSError, PdfminerException) as error:
         raise LessonError(f"cannot read {path}: {error}") from error
+    return rows
+
+
+def page_rows(page: int, seen: Sequence[Seen]) -> list[Row]:
+    """One page's words as its physical lines, the page's footer dropped.
+
+    Where a line ends is what a card's own line breaks are made of, so this is
+    the same work whether the words were read out of a text layer or off a
+    picture: the two differ in how the words were found, not in what a line is.
+    """
+    rows: list[Row] = []
+    for line in _by_top(seen):
+        row = Row(
+            page=page,
+            top=max(word.top for word in line),
+            words=tuple(
+                _rejoin_apostrophes([Word(word.text, word.x0, word.x1) for word in line])
+            ),
+        )
+        if not FOOTER.search(row.squashed):
+            rows.append(row)
     return rows
 
 
@@ -155,18 +186,18 @@ def _words(page: pdfplumber.page.Page) -> list[dict[str, Any]]:
     return page.extract_words(use_text_flow=True)
 
 
-def _lines(words: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+def _by_top(seen: Sequence[Seen]) -> list[list[Seen]]:
     """Group a page's words into physical lines, left to right."""
-    if not words:
+    if not seen:
         return []
-    ordered = sorted(words, key=lambda word: (word["top"], word["x0"]))
+    ordered = sorted(seen, key=lambda word: (word.top, word.x0))
     lines = [[ordered[0]]]
     for word in ordered[1:]:
-        if word["top"] - lines[-1][0]["top"] <= ROW_TOLERANCE:
+        if word.top - lines[-1][0].top <= ROW_TOLERANCE:
             lines[-1].append(word)
         else:
             lines.append([word])
-    return [sorted(line, key=lambda word: word["x0"]) for line in lines]
+    return [sorted(line, key=lambda word: word.x0) for line in lines]
 
 
 def columns(rows: list[Row]) -> tuple[float, ...]:

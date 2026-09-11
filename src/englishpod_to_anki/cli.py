@@ -32,7 +32,8 @@ from .importer import (
     Unanswered,
 )
 from .lesson import LessonError
-from .preprocess import Preprocessed, preprocess_lesson
+from .ocr import BASE as OCR_URL, Baidu, OcrError, credentials
+from .preprocess import Preprocessed, Reader, preprocess_lesson
 
 # Every stage takes one path, which is either one lesson's directory or the
 # corpus directory holding them all.
@@ -43,11 +44,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.command == "preprocess":
-            return _preprocess(args.target, force=args.force)
+            return _preprocess(args.target, force=args.force, ocr=args.ocr, url=args.ocr_url)
         if args.command == "build":
             return _build(args.target)
         return _import(args.target, url=args.anki_url, policy=args.existing)
-    except (LessonError, AnkiConnectError, Unanswered) as error:
+    except (LessonError, AnkiConnectError, OcrError, Unanswered) as error:
         print(f"{args.command}: {error}", file=sys.stderr)
         return 1
 
@@ -65,6 +66,17 @@ def _parser() -> argparse.ArgumentParser:
     preprocess.add_argument("target", type=Path, help=ONE_LESSON_OR_MANY)
     preprocess.add_argument(
         "--force", action="store_true", help="regenerate a Markdown file that already exists"
+    )
+    preprocess.add_argument(
+        "--ocr",
+        action="store_true",
+        help="read a lesson whose PDF holds no text with the OCR service, "
+        "whose credentials are read from .env",
+    )
+    preprocess.add_argument(
+        "--ocr-url",
+        default=OCR_URL,
+        help=f"where the OCR service answers (default {OCR_URL})",
     )
 
     build = stages.add_parser("build", help="show the note a lesson's Markdown makes")
@@ -86,9 +98,10 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _preprocess(target: Path, *, force: bool) -> int:
+def _preprocess(target: Path, *, force: bool, ocr: bool, url: str) -> int:
+    reader = _ocr_pass(url) if ocr else None
     if not (lessons := corpus.lessons(target)):
-        result = _preprocess_one(target, force=force)
+        result = _preprocess_one(target, force=force, reader=reader)
         if not result.written:
             print(
                 f"preprocess: {result.markdown} already exists; left untouched "
@@ -96,7 +109,14 @@ def _preprocess(target: Path, *, force: bool) -> int:
             )
         return 0
 
-    run = corpus.run(lessons, lambda lesson: _preprocess_one(lesson, force=force))
+    run = corpus.run(
+        lessons,
+        lambda lesson: _preprocess_one(lesson, force=force, reader=reader),
+        # A service that will not read the next page will not read the one after
+        # it either, so the run stops where it happened rather than asking three
+        # hundred more times and being refused the same way each time.
+        halt=(OcrError,),
+    )
     written = sum(result.written for result in run.worked)
     return _summarize(
         "preprocess",
@@ -108,7 +128,18 @@ def _preprocess(target: Path, *, force: bool) -> int:
     )
 
 
-def _preprocess_one(lesson: Path, *, force: bool) -> Preprocessed:
+def _ocr_pass(url: str) -> Reader:
+    """The OCR pass, ready to read a page.
+
+    Its credentials are read before the run rather than at the first lesson that
+    needs them, so a run with no key says so at once instead of after however
+    many lessons it takes to reach a page that holds no text.
+    """
+    key, secret = credentials()
+    return Baidu(key=key, secret=secret, url=url).read
+
+
+def _preprocess_one(lesson: Path, *, force: bool, reader: Reader | None) -> Preprocessed:
     """Write one lesson's Markdown, saying so when it wrote one.
 
     A run over a corpus reports the lessons it wrote a line each, so the saying
@@ -116,7 +147,7 @@ def _preprocess_one(lesson: Path, *, force: bool) -> Preprocessed:
     is reported by the run's summary instead, which does not repeat the way to
     regenerate it three hundred times over.
     """
-    result = preprocess_lesson(lesson, force=force)
+    result = preprocess_lesson(lesson, force=force, reader=reader)
     if result.written:
         print(f"preprocess: wrote {result.markdown}")
     return result
