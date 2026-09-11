@@ -17,8 +17,10 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import pdfplumber
+from pdfplumber.utils.exceptions import PdfminerException
 
 from .dictionary import is_word
+from .lesson import LessonError
 
 # Words whose tops are closer together than this sit on the same physical line.
 ROW_TOLERANCE = 6.0
@@ -69,22 +71,32 @@ class Row:
 
 
 def read_rows(path: Path) -> list[Row]:
-    """Every physical line of the PDF in reading order, page footers dropped."""
+    """Every physical line of the PDF in reading order, page footers dropped.
+
+    A file that is not a PDF this can open -- truncated, or not a PDF at all --
+    is the lesson's problem rather than the run's, so it is reported the way
+    every other unreadable lesson is: a run over a corpus skips that lesson and
+    carries on, and a stage pointed at it says what is wrong rather than letting
+    the library's error out as a traceback.
+    """
     rows: list[Row] = []
-    with pdfplumber.open(path) as pdf:
-        for number, page in enumerate(pdf.pages):
-            for line in _lines(_words(page)):
-                row = Row(
-                    page=number,
-                    top=max(word["top"] for word in line),
-                    words=tuple(
-                        _rejoin_apostrophes(
-                            [Word(word["text"], word["x0"], word["x1"]) for word in line]
-                        )
-                    ),
-                )
-                if not FOOTER.search(row.squashed):
-                    rows.append(row)
+    try:
+        with pdfplumber.open(path) as pdf:
+            for number, page in enumerate(pdf.pages):
+                for line in _lines(_words(page)):
+                    row = Row(
+                        page=number,
+                        top=max(word["top"] for word in line),
+                        words=tuple(
+                            _rejoin_apostrophes(
+                                [Word(word["text"], word["x0"], word["x1"]) for word in line]
+                            )
+                        ),
+                    )
+                    if not FOOTER.search(row.squashed):
+                        rows.append(row)
+    except (OSError, PdfminerException) as error:
+        raise LessonError(f"cannot read {path}: {error}") from error
     return rows
 
 

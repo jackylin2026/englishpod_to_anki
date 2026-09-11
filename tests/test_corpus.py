@@ -97,6 +97,26 @@ def test_a_lesson_with_no_vocabulary_to_blank_is_skipped_rather_than_built(
     assert f"{lesson} has no vocabulary to draw blanks from" in result.stderr
 
 
+def test_a_lesson_that_cannot_be_read_at_all_does_not_stop_the_run(
+    pdf_corpus: Path, run_cli
+) -> None:
+    """A corrupt file is a skipped lesson like any other, not a traceback.
+
+    One of a run's lessons failing to open must not cost the run the lessons
+    after it.
+    """
+    broken = pdf_corpus / "0001"
+    broken.mkdir()
+    (broken / "englishpod_B0001.pdf").write_bytes(b"not a PDF at all")
+
+    result = run_cli("preprocess", pdf_corpus)
+
+    assert result.returncode == 0, result.stderr
+    assert (pdf_corpus / "0108" / "englishpod_D0108.md").is_file()
+    assert f"cannot read {broken / 'englishpod_B0001.pdf'}" in result.stderr
+    assert "preprocess: 3 lessons: 1 written, 2 skipped" in result.stderr
+
+
 def test_one_malformed_lesson_does_not_stop_the_run(corpus: Path, run_cli) -> None:
     """The fixture's first lesson carries no lesson code, and is not the last."""
     result = run_cli("build", corpus)
@@ -192,6 +212,27 @@ def test_an_anki_that_refuses_a_note_stops_the_run(corpus: Path, run_cli) -> Non
         assert len(stub.sent("addNote")) == 1
     finally:
         stub.close()
+
+
+def test_a_directory_of_transcripts_beside_the_lessons_is_reported_once(
+    pdf_corpus: Path, run_cli
+) -> None:
+    """The corpus keeps 178 host-transcript PDFs in a directory of their own.
+
+    It is not a lesson, and the run neither takes it for one nor passes over it
+    in silence: it is reported once, naming a few of its files and counting the
+    rest rather than printing all 178.
+    """
+    transcripts = pdf_corpus / "host text"
+    transcripts.mkdir()
+    for number in range(6):
+        (transcripts / f"{number:03d} - A Customer.pdf").write_bytes(b"")
+
+    result = run_cli("preprocess", pdf_corpus)
+
+    assert f"{transcripts} holds more than one PDF" in result.stderr
+    assert "and 3 more" in result.stderr
+    assert "preprocess: 3 lessons: 1 written, 2 skipped" in result.stderr
 
 
 def test_preprocess_runs_over_every_lesson_the_corpus_holds(pdf_corpus: Path, run_cli) -> None:

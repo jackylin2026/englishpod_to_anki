@@ -206,6 +206,20 @@ def test_a_directory_holding_no_pdf_is_reported(tmp_path: Path, run_cli) -> None
     assert "no PDF" in result.stderr
 
 
+def test_a_pdf_that_cannot_be_read_is_reported(tmp_path: Path, run_cli) -> None:
+    """A truncated or corrupt file is the lesson's problem, not a traceback."""
+    lesson = tmp_path / "lesson"
+    lesson.mkdir()
+    (lesson / "englishpod_D0108.pdf").write_bytes(b"not a PDF at all")
+
+    result = run_cli("preprocess", lesson)
+
+    assert result.returncode == 1
+    assert "cannot read" in result.stderr
+    assert "englishpod_D0108.pdf" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_a_directory_holding_too_many_pdfs_names_a_few_of_them(
     tmp_path: Path, run_cli
 ) -> None:

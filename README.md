@@ -40,16 +40,25 @@ A run over the corpus ends with a summary of the lessons it skipped, named with
 the reason each was given:
 
 ```
-preprocess: 366 lessons: 365 written, 1 skipped
+preprocess: 366 lessons: 217 written, 149 skipped
 skipped:
   /path/to/corpus/英语博客51-100/ENGLISHPOD主持人对话文本 holds more than one PDF: 001 - Difficult Customer.pdf, 002 - Calling In Sick.pdf, 003 - Hotel Upgrade.pdf, and 175 more
+  /path/to/corpus/英语博客100-150/0135/135.pdf has no text layer; it needs the OCR pass
+  /path/to/corpus/英语博客251-300/0251-0260/0251/EnglishPod.Intro.0251.pdf carries no lesson code
 ```
+
+That is the whole corpus the tool was built against, measured, and the 149 are
+worth knowing about before a first run: 69 are image-only scans that want the
+OCR pass, 77 are the lesson-introduction sheets the batches above 250 keep in
+place of a lesson PDF (the lesson itself is in the batch's combined PDF), and 3
+directories hold more than one PDF and are declined rather than guessed about.
 
 A lesson missing its dialogue audio, or one whose dialogue carries none of its
 Key Vocabulary to blank, is skipped rather than turned into a card that looks
-complete and isn't. One unreadable lesson never stops the run — but a run that
-worked on no lesson at all exits non-zero, so a script cannot mistake it for
-success.
+complete and isn't. One unreadable lesson never stops the run — a file that is
+not a readable PDF, a PDF with no text layer, a Markdown with no lesson code —
+but a run that worked on no lesson at all exits non-zero, so a script cannot
+mistake it for success.
 
 ## Setup
 
