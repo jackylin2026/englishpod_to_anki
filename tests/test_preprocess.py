@@ -204,3 +204,24 @@ def test_a_directory_holding_no_pdf_is_reported(tmp_path: Path, run_cli) -> None
 
     assert result.returncode == 1
     assert "no PDF" in result.stderr
+
+
+def test_a_directory_holding_too_many_pdfs_names_a_few_of_them(
+    tmp_path: Path, run_cli
+) -> None:
+    """A directory holding hundreds is one to look at, not a list to read.
+
+    The corpus holds one such directory, so a run over it reports a single
+    lesson and a message that stays one line long.
+    """
+    crowded = tmp_path / "crowded"
+    crowded.mkdir()
+    for number in range(7):
+        (crowded / f"englishpod_{number}.pdf").write_bytes(b"")
+
+    result = run_cli("preprocess", crowded)
+
+    assert result.returncode == 1
+    assert "holds more than one PDF" in result.stderr
+    assert "and 4 more" in result.stderr
+    assert len(result.stderr) < 200

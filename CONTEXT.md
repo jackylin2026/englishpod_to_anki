@@ -4,9 +4,21 @@ Turns a downloaded EnglishPod corpus into Anki cards for a single learner's coll
 
 ## Language
 
+**Corpus**:
+The downloaded EnglishPod material, read where it lies and never reorganised. It carries no index of its lessons: the way it nests them is the map, and pointing a stage at the corpus directory is what runs it over all of them at once.
+_Avoid_: dataset, source tree
+
 **Lesson**:
 One EnglishPod episode.
 _Avoid_: episode, unit, track
+
+**Lesson directory**:
+The directory the corpus keeps one lesson in: it holds that lesson's files, and no lesson of its own. Both facts are needed, because the corpus also keeps batch directories holding ten lessons *and* a combined PDF of those ten.
+_Avoid_: lesson folder, lesson path
+
+**Batch directory**:
+The directory the corpus nests its later lessons by the ten in. It holds lessons and the combined PDF of them, and is a container rather than a lesson: what it holds is the lessons, and the PDF beside them belongs to no one lesson.
+_Avoid_: group, folder
 
 **Lesson code**:
 The identifier printed in a lesson PDF's header — a level letter and four digits, such as `C0108`. Always read from the PDF; never inferred from a filename, which disagrees with it in a small number of cases.
@@ -65,5 +77,5 @@ The tag `englishpod::C0108` a note is born with, derived from its lesson code, s
 _Avoid_: note id, guid, key
 
 **Skipped lesson**:
-A lesson the tool declined to build because it was missing dialogue audio, or had no vocabulary to draw blanks from.
+A lesson a stage declined to work on, named with the reason at the end of a run over the corpus. A lesson is skipped rather than built when it is missing its dialogue audio or its Markdown, when its PDF or Markdown cannot be read, or when it has no vocabulary to draw blanks from.
 _Avoid_: failed lesson, error

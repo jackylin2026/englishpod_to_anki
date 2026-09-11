@@ -9,6 +9,7 @@ what a lesson directory has to hold for either stage to work on it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,6 +63,12 @@ class Lesson:
     supplementary_vocabulary: tuple[VocabularyTerm, ...]
 
 
+# How many of a directory's files a message names before counting the rest. A
+# directory holding two is one to look at; the corpus also holds one that holds
+# 178, and a run over the corpus reports it as one lesson rather than as a list.
+NAMED = 3
+
+
 def lesson_file(directory: Path, name: str, *, what: str) -> Path:
     """The one file of its kind a lesson directory holds.
 
@@ -75,9 +82,15 @@ def lesson_file(directory: Path, name: str, *, what: str) -> Path:
     if not files:
         raise LessonError(f"{directory} holds no {what}")
     if len(files) > 1:
-        names = ", ".join(file.name for file in files)
-        raise LessonError(f"{directory} holds more than one {what}: {names}")
+        raise LessonError(f"{directory} holds more than one {what}: {_named(files)}")
     return files[0]
+
+
+def _named(files: Sequence[Path]) -> str:
+    names = ", ".join(file.name for file in files[:NAMED])
+    if len(files) > NAMED:
+        return f"{names}, and {len(files) - NAMED} more"
+    return names
 
 
 def render_markdown(lesson: Lesson) -> str:
@@ -102,7 +115,9 @@ def read_markdown(path: Path) -> Lesson:
     """The lesson a Markdown file holds.
 
     Raises `LessonError` if the file cannot be read, or carries no title, which
-    is where the lesson code every stage names the lesson by is read from.
+    is where the lesson code every stage names the lesson by is read from. The
+    file is named in full rather than by its own name, since a run over a corpus
+    reports the lesson it skipped and every lesson has a file by that name.
     """
     try:
         text = path.read_text(encoding="utf-8")
@@ -112,7 +127,7 @@ def read_markdown(path: Path) -> Lesson:
     title, sections = _sections(text)
     code = _code(title)
     if code is None:
-        raise LessonError(f"{path.name} carries no lesson code")
+        raise LessonError(f"{path} carries no lesson code")
     return Lesson(
         code=code,
         dialogue=_dialogue(sections.get(DIALOGUE, "")),

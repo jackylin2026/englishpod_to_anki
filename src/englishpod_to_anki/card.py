@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .dictionary import core
-from .lesson import Dialogue, Lesson, VocabularyTerm, lesson_file, read_markdown
+from .lesson import Dialogue, Lesson, LessonError, VocabularyTerm, lesson_file, read_markdown
 
 # Every note lands in the deck the learner already keeps, and the note type is
 # named so that nothing resolves Anki's built-in `Cloze` by mistake.
@@ -107,13 +107,22 @@ class Blanked:
 
     sentences: str
     unmatched: tuple[str, ...]
+    blanks: int
 
 
 def build_note(lesson_dir: Path) -> Note:
-    """The note the lesson in `lesson_dir` produces, without touching Anki."""
+    """The note the lesson in `lesson_dir` produces, without touching Anki.
+
+    Raises `LessonError` if the lesson cannot make the card the design calls
+    for, which a lesson whose dialogue carries none of its Key Vocabulary
+    cannot: a note with nothing blanked looks complete in the collection and
+    asks the learner nothing.
+    """
     lesson = read_markdown(lesson_file(lesson_dir, "*.md", what="Markdown"))
     audio = dialogue_audio(lesson_dir)
     blanked = blank(lesson.dialogue, lesson.key_vocabulary)
+    if not blanked.blanks:
+        raise LessonError(f"{lesson_dir} has no vocabulary to draw blanks from")
     return Note(
         code=lesson.code,
         deck=DECK,
@@ -206,7 +215,9 @@ def blank(dialogue: Dialogue, terms: tuple[VocabularyTerm, ...]) -> Blanked:
         if not occurrences:
             unmatched.append(term.term)
         found += occurrences
-    return Blanked(sentences=_render(tokens, found), unmatched=tuple(unmatched))
+    return Blanked(
+        sentences=_render(tokens, found), unmatched=tuple(unmatched), blanks=len(found)
+    )
 
 
 def glossary(lesson: Lesson) -> str:

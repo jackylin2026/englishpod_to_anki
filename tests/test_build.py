@@ -241,3 +241,30 @@ def test_a_lesson_with_no_dialogue_audio_is_reported(tmp_path: Path, run_cli) ->
 
     assert result.returncode == 1
     assert "no dialogue audio" in result.stderr
+
+
+def test_a_lesson_with_no_vocabulary_to_blank_is_reported(tmp_path: Path, run_cli) -> None:
+    """A card with nothing blanked looks complete and tests nothing."""
+    lesson = tmp_path / "lesson"
+    lesson.mkdir()
+    (lesson / "englishpod_D0108.md").write_text(
+        "# C0108\n"
+        "\n"
+        "## Dialogue\n"
+        "\n"
+        "A: Nothing the table names is said here.\n"
+        "\n"
+        "## Key Vocabulary\n"
+        "\n"
+        "| Term | Part of speech | Definition |\n"
+        "| --- | --- | --- |\n"
+        "| stockroom | common noun, singular | the room where goods are kept |\n",
+        encoding="utf-8",
+    )
+    (lesson / "englishpod_D0108dg.mp3").write_bytes(b"")
+
+    result = run_cli("build", lesson)
+
+    assert result.returncode == 1
+    assert "no vocabulary to draw blanks from" in result.stderr
+    assert not result.stdout

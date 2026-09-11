@@ -73,6 +73,18 @@ class StubAnki:
             return self._note_type()["templates"]
         if action == "createModel":
             self.model_names.append(params["modelName"])
+            # Anki then holds the note type it was asked to make, and answers
+            # for it -- which a run over a corpus asks of the second note on.
+            self.note_type = {
+                "fields": params["inOrderFields"],
+                "templates": {
+                    template["Name"]: {
+                        "Front": template["Front"],
+                        "Back": template["Back"],
+                    }
+                    for template in params["cardTemplates"]
+                },
+            }
             return {"id": 1761206860731, "name": params["modelName"]}
         if action == "storeMediaFile":
             return params["filename"]

@@ -52,10 +52,14 @@ def preprocess_lesson(lesson_dir: Path, *, force: bool = False) -> Preprocessed:
 
 
 def read_lesson(path: Path) -> Lesson:
-    """Read one lesson PDF. Raises `LessonError` if it holds no readable text."""
+    """Read one lesson PDF. Raises `LessonError` if it holds no readable text.
+
+    A PDF this stage cannot read is named in full: a run over a corpus reports
+    the lessons it skipped, and a file name alone would not say which of them.
+    """
     rows = read_rows(path)
     if not rows:
-        raise LessonError(f"{path.name} has no text layer; it needs the OCR pass")
+        raise LessonError(f"{path} has no text layer; it needs the OCR pass")
 
     key_at = _heading(rows, KEY_HEADING)
     supplementary_at = _heading(rows, SUPPLEMENTARY_HEADING)
@@ -67,7 +71,7 @@ def read_lesson(path: Path) -> Lesson:
 
     code, dialogue = _dialogue(rows[:first_table_at] if first_table_at is not None else rows)
     if code is None:
-        raise LessonError(f"{path.name} carries no lesson code")
+        raise LessonError(f"{path} carries no lesson code")
     return Lesson(
         code=code,
         dialogue=dialogue,
