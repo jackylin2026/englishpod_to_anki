@@ -1,2 +1,1 @@
-# 说明
-这个工具可以把EnglishPod的文档和音频制作成Anki卡片。
+This tool can make the Anki cards by the EnglishPod documents & audio files.
