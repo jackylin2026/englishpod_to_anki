@@ -21,7 +21,16 @@ from pathlib import Path
 from . import corpus
 from .anki import DEFAULT_URL, AnkiConnectError
 from .card import Note, build_note
-from .importer import send_note
+from .importer import (
+    ASK,
+    IMPORTED,
+    LEFT,
+    POLICIES,
+    REFRESHED,
+    Done,
+    Importer,
+    Unanswered,
+)
 from .lesson import LessonError
 from .preprocess import Preprocessed, preprocess_lesson
 
@@ -37,8 +46,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _preprocess(args.target, force=args.force)
         if args.command == "build":
             return _build(args.target)
-        return _import(args.target, url=args.anki_url)
-    except (LessonError, AnkiConnectError) as error:
+        return _import(args.target, url=args.anki_url, policy=args.existing)
+    except (LessonError, AnkiConnectError, Unanswered) as error:
         print(f"{args.command}: {error}", file=sys.stderr)
         return 1
 
@@ -67,6 +76,12 @@ def _parser() -> argparse.ArgumentParser:
         "--anki-url",
         default=DEFAULT_URL,
         help=f"where AnkiConnect listens (default {DEFAULT_URL})",
+    )
+    send.add_argument(
+        "--existing",
+        choices=POLICIES,
+        default=ASK,
+        help="what to do about a lesson already in the collection (default: ask)",
     )
     return parser
 
@@ -123,23 +138,43 @@ def _build_one(lesson: Path) -> Note:
     return note
 
 
-def _import(target: Path, *, url: str) -> int:
+def _import(target: Path, *, url: str, policy: str) -> int:
     if not (lessons := corpus.lessons(target)):
-        _import_one(target, url=url)
+        _import_one(target, Importer(url=url, policy=policy))
         return 0
 
+    importer = Importer(url=url, policy=policy, many=len(lessons) > 1)
     run = corpus.run(
-        lessons, lambda lesson: _import_one(lesson, url=url), halt=(AnkiConnectError,)
+        lessons,
+        lambda lesson: _import_one(lesson, importer),
+        halt=(AnkiConnectError, Unanswered),
     )
-    return _summarize("import", run, counts=((len(run.worked), "imported"),))
+    return _summarize(
+        "import",
+        run,
+        counts=(
+            (sum(done.what == IMPORTED for done in run.worked), "imported"),
+            (sum(done.what == REFRESHED for done in run.worked), "refreshed"),
+            (sum(done.what == LEFT for done in run.worked), "left as they were"),
+        ),
+    )
 
 
-def _import_one(lesson: Path, *, url: str) -> int:
+def _import_one(lesson: Path, importer: Importer) -> Done:
     note = build_note(lesson)
-    note_id = send_note(note, url=url)
-    print(f"import: {note.code}: added note {note_id} to the {note.deck} deck")
+    done = importer.send(note)
+    print(f"import: {note.code}: {_what_became_of(done, note)}")
     _report_unmatched(note)
-    return note_id
+    return done
+
+
+def _what_became_of(done: Done, note: Note) -> str:
+    """What one lesson's import did, in the stage's own words."""
+    if done.what == LEFT:
+        return f"already in the collection (note {done.note_id}); left as it is"
+    if done.what == REFRESHED:
+        return f"refreshed note {done.note_id} in the {note.deck} deck, keeping its review history"
+    return f"added note {done.note_id} to the {note.deck} deck"
 
 
 def _summarize(

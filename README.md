@@ -13,7 +13,7 @@ corpus.
 | --- | --- |
 | `preprocess` | Reads a lesson PDF and writes a Markdown file beside it |
 | `build` | Reads a lesson's Markdown and produces the note it would create, without touching Anki |
-| `import` | Sends built notes to a running Anki through AnkiConnect |
+| `import` | Sends built notes to a running Anki through AnkiConnect, asking about the lessons already there |
 
 The Markdown sits between extraction and card-building deliberately: it is where
 an OCR error can be read and fixed once, rather than inherited by every card
@@ -191,10 +191,48 @@ refused — and says how many notes landed before it did. Half a corpus imported
 is worse than none, and a lesson the tool cannot build is not the same thing:
 that one is skipped and the run carries on.
 
-A lesson already in the collection is not yet detected, so importing one twice
-stops the run: Anki refuses the second note as a duplicate. Asking what to do
-about it — skip it, or refresh its content and keep its review history — is the
-next piece of work.
+### A lesson already in your collection
+
+Importing a lesson the collection already holds asks what to do about it rather
+than deciding. Nothing is written until you answer, and neither answer
+deletes and remakes the note, because the card you have already studied is what
+the question exists to protect:
+
+```
+$ englishpod-to-anki import /path/to/corpus
+import: C0108 is already in the collection (note 1603242736000, found by its tag).
+  [s]kip      leave the card, and its review history, as they are
+  [r]eplace   refresh the card's content, keeping its review history
+answer s or r, adding "all" to answer the same way for every lesson left:
+```
+
+Add `all` to an answer — `s all`, `r all` — to settle every lesson left the
+same way, so a corpus-wide re-run is one decision rather than three hundred.
+`--existing skip` and `--existing replace` answer ahead of time, and in those
+modes nothing is asked, so a scripted run never waits on a prompt it cannot
+answer. A run with nobody to answer and no flag says what it was asked and what
+to pass, rather than hanging on the question.
+
+A lesson counts as already there in two ways. The deck holds a note the tool
+made for it — one carrying the `englishpod::C0108` tag — and that is the note
+its identity names. Failing that, the deck holds a note of *any* note type whose
+dialogue is the lesson's own words, which is how cards made by hand before this
+tool existed are recognised: their blanks, their line breaks and their
+punctuation are their maker's and their note carries no tag, but the dialogue is
+the lesson's own. Replacing one of those
+writes the card's content into the note that is there, keeping its note type,
+its scheduling and its review history. If that note type would not render the
+card — a field it lacks, a side that hides the glossary — the lesson is reported
+and left alone instead, and the run carries on.
+
+A lesson the collection holds twice — two notes carrying one `englishpod::` tag
+— is reported rather than guessed at: which of them is the lesson's note is not
+the tool's to say, so both are left alone and the lesson is named in the run's
+summary.
+
+A run that left every lesson alone is a run that did its job, and exits zero —
+saying how many were left as they were. A run that skipped every lesson for
+reasons of its own still exits non-zero, because it did nothing.
 
 ## Tests
 
@@ -205,8 +243,9 @@ next piece of work.
 The tests run the tool as a subprocess and assert on what it produced — the
 Markdown, the emitted note, and the requests an import makes — never on its
 internals. They need no network, no Anki and no OCR credentials: `import` is
-driven against `tests/stub_anki.py`, a stand-in AnkiConnect that records what it
-was asked to do.
+driven against `tests/stub_anki.py`, a stand-in AnkiConnect holding the notes a
+test puts in it and recording what it was asked to do — which is how a replace
+is shown to leave a card's scheduling where it found it.
 
 The sample lesson they run against is drawn by
 `tests/fixtures/make_sample_lesson.py`, which copies the *geometry* of a real

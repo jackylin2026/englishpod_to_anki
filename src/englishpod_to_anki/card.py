@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from html import unescape
 from pathlib import Path
 
 from .dictionary import core
@@ -33,7 +34,8 @@ TAG = "englishpod::"
 # The six fields, in the order the card's design fixes. `Synonym` and
 # `Word Family` are carried empty: the design has them, and filling them later
 # should not be a schema change.
-FIELDS = ("Sentences", "Phonetic symbols", "Words", "Synonym", "Word Family", "TTS")
+SENTENCES = "Sentences"
+FIELDS = (SENTENCES, "Phonetic symbols", "Words", "Synonym", "Word Family", "TTS")
 
 # The dialogue breaks where the page broke: a paragraph break is a newline
 # before the break, an intra-paragraph wrap a space before it.
@@ -72,6 +74,16 @@ CSS = (
 # A bracketed annotation is a note to the reader, not part of the term: `(be)
 # overstocked` is the word `overstocked`.
 ANNOTATION = re.compile(r"\([^)]*\)")
+
+# How one card's dialogue is compared against another's: a blank gives back the
+# word it hides -- hint and all -- markup and line breaks become the spaces they
+# stand for, and the words left are the ones compared. Punctuation goes with the
+# rest of it, because the stops and apostrophes a card is written with are its
+# maker's as surely as the words they blanked are.
+CLOZE = re.compile(r"\{\{c\d+::(.*?)(?:::[^{}]*)?\}\}")
+MARKUP = re.compile(r"<[^>]*>")
+SPACE = re.compile(r"\s+")
+PUNCTUATION = re.compile(r"\W+")
 
 VOWELS = "aeiou"
 
@@ -129,7 +141,7 @@ def build_note(lesson_dir: Path) -> Note:
         note_type=NOTE_TYPE,
         tags=(TAG + lesson.code,),
         fields={
-            "Sentences": blanked.sentences,
+            SENTENCES: blanked.sentences,
             "Phonetic symbols": "",
             "Words": glossary(lesson),
             "Synonym": "",
@@ -149,6 +161,24 @@ def dialogue_audio(lesson_dir: Path) -> Path:
     reads it in its own working directory, not the one the tool was run from.
     """
     return lesson_file(lesson_dir, "*dg.mp3", what="dialogue audio").resolve()
+
+
+def plain_dialogue(field: str) -> str:
+    """The words a card's dialogue field holds, whoever made the card.
+
+    A card carries its maker's choices as well as the lesson's words: which
+    terms they blanked, where they broke the lines, and how they punctuated what
+    they typed. This gives back the words alone, so that a card this tool built
+    and a card made by hand from the same lesson come out the same -- which is
+    how a lesson the collection already holds is recognised when its note
+    carries no tag to be found by.
+    """
+    filled = CLOZE.sub(r"\1", field)
+    words = [
+        PUNCTUATION.sub("", word)
+        for word in SPACE.sub(" ", unescape(MARKUP.sub(" ", filled))).split()
+    ]
+    return " ".join(word for word in words if word)
 
 
 def design_differences(

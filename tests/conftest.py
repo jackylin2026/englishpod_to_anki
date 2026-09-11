@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -82,14 +83,39 @@ def anki():
 
 
 @pytest.fixture
-def run_cli():
-    """Run the tool the way a user does: as a subprocess, through its command line."""
+def stub():
+    """Stub AnkiConnects holding the notes a test puts there, closed at the end.
 
-    def run(*arguments: object) -> subprocess.CompletedProcess[str]:
+    A test that has notes to put in the collection says them first -- the ones
+    the collection already holds -- and gets back the stub to assert on.
+    """
+    made: list[StubAnki] = []
+
+    def build(*notes: dict, **collection: Any) -> StubAnki:
+        instance = StubAnki(notes=notes, **collection)
+        made.append(instance)
+        return instance
+
+    yield build
+    for instance in made:
+        instance.close()
+
+
+@pytest.fixture
+def run_cli():
+    """Run the tool the way a user does: as a subprocess, through its command line.
+
+    Standard input is empty unless a test has an answer to give, so that a run
+    asking a question nobody meant it to ask reads an end of file rather than
+    whatever the terminal running the tests happens to be holding.
+    """
+
+    def run(*arguments: object, input: str = "") -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, "-m", "englishpod_to_anki", *(str(a) for a in arguments)],
             capture_output=True,
             text=True,
+            input=input,
             env={**os.environ, "PYTHONPATH": str(SRC)},
         )
 

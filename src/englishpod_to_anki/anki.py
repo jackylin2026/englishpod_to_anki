@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 from urllib.request import Request, urlopen
 
 # AnkiConnect listens here by default, on the same machine as Anki.
@@ -46,6 +46,14 @@ class AnkiConnect:
     def note_type_templates(self, name: str) -> dict[str, dict[str, str]]:
         """One note type's cards, each against the two sides it renders."""
         return self._call("modelTemplates", modelName=name)
+
+    def find_notes(self, query: str) -> list[int]:
+        """The identifiers of every note a search finds."""
+        return self._call("findNotes", query=query)
+
+    def notes_info(self, note_ids: Sequence[int]) -> list[dict[str, Any]]:
+        """What the collection holds for each of those notes."""
+        return self._call("notesInfo", notes=list(note_ids))
 
     def create_note_type(
         self,
@@ -83,6 +91,15 @@ class AnkiConnect:
                 "tags": list(tags),
             },
         )
+
+    def update_note_fields(self, note_id: int, fields: Mapping[str, str]) -> None:
+        """Refresh a note's fields, leaving the card's scheduling where it was.
+
+        AnkiConnect has no action that makes a note again in place: this one
+        writes over the fields of the note that is there, so the card it has
+        made keeps its scheduling and its review history.
+        """
+        self._call("updateNoteFields", note={"id": note_id, "fields": dict(fields)})
 
     def _call(self, action: str, **params: Any) -> Any:
         request = Request(

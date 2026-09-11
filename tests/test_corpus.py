@@ -21,7 +21,7 @@ from os.path import relpath
 from pathlib import Path
 
 from conftest import BATCH
-from stub_anki import StubAnki
+from stub_anki import StubAnki, existing
 
 
 def notes(result: subprocess.CompletedProcess[str]) -> list[dict]:
@@ -197,6 +197,38 @@ def test_import_sends_a_note_for_every_lesson_it_builds(corpus: Path, anki, run_
     tags = [request["note"]["tags"] for request in anki.sent("addNote")]
     assert tags == [["englishpod::C0108"], ["englishpod::B0110"]]
     assert "import: 4 lessons: 2 imported, 2 skipped" in result.stderr
+
+
+def test_one_answer_can_be_given_for_every_lesson_the_collection_holds(corpus, stub, run_cli) -> None:
+    """A corpus-wide re-run is one decision, rather than one prompt a lesson."""
+    anki = stub(
+        existing(tags=("englishpod::C0108",)),
+        existing(note_id=1603242736001, tags=("englishpod::B0110",)),
+    )
+
+    result = run_cli("import", corpus, "--anki-url", anki.url, input="s all\n")
+
+    assert result.returncode == 0, result.stderr
+    # Both lessons are already there, and the run asked about the first alone.
+    assert result.stdout.count("is already in the collection") == 1
+    assert "addNote" not in anki.actions()
+    assert "import: 4 lessons: 2 left as they were, 2 skipped" in result.stderr
+
+
+def test_the_answer_for_every_lesson_left_can_be_replace(corpus, stub, run_cli) -> None:
+    """Said once at the keyboard, it refreshes every note that is already there."""
+    anki = stub(
+        existing(tags=("englishpod::C0108",)),
+        existing(note_id=1603242736001, tags=("englishpod::B0110",)),
+    )
+
+    result = run_cli("import", corpus, "--anki-url", anki.url, input="r all\n")
+
+    assert result.returncode == 0, result.stderr
+    refreshed = [params["note"]["id"] for params in anki.sent("updateNoteFields")]
+    assert refreshed == [1603242736000, 1603242736001]
+    assert "addNote" not in anki.actions()
+    assert "import: 4 lessons: 2 refreshed, 2 skipped" in result.stderr
 
 
 def test_a_skipped_lesson_is_never_sent_to_anki(corpus: Path, anki, run_cli) -> None:

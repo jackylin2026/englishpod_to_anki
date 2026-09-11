@@ -88,6 +88,14 @@ _Avoid_: template, model, layout
 The tag `englishpod::C0108` a note is born with, derived from its lesson code, so that a later run finds the note an earlier run made.
 _Avoid_: note id, guid, key
 
+**Existing note**:
+The note the collection already holds for a lesson: one carrying the lesson's `englishpod::` tag, or one whose dialogue is the lesson's own words, whichever the deck is read as holding. What is done about it — left exactly as it is, or replaced — is the learner's answer rather than the tool's.
+_Avoid_: duplicate, old card
+
+**Replace**:
+Refreshing the fields of a lesson's existing note, so that the card keeps the scheduling and the review history it has earned. Never a deletion and a note made again, which would cost exactly what it is for.
+_Avoid_: update, re-import, overwrite
+
 **Skipped lesson**:
 A lesson a stage declined to work on, named with the reason at the end of a run over the corpus. A lesson is skipped rather than built when it is missing its dialogue audio or its Markdown, when its PDF or Markdown cannot be read, or when it has no vocabulary to draw blanks from.
 _Avoid_: failed lesson, error
