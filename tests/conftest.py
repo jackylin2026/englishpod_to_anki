@@ -20,6 +20,7 @@ SAMPLE_LESSON = FIXTURES / "lesson"
 SCANNED_LESSON = FIXTURES / "scanned_lesson"
 MARKDOWN_LESSON = FIXTURES / "markdown_lesson"
 CORPUS = FIXTURES / "corpus"
+PRINT_TRANSCRIPT = FIXTURES / "transcript.pdf"
 
 # The corpus fixture's batch directory: the layout the corpus nests its later
 # lessons in, which a run has to tell apart from a lesson.
@@ -72,6 +73,17 @@ def _copied_into(source: Path, destination: Path) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination)
     return destination
+
+
+@pytest.fixture
+def print_transcript() -> Path:
+    """The corpus's print transcript, as a fixture: a condensation, read only.
+
+    It holds four lessons' dialogues -- the sample lesson's own, one whose code it
+    letters its own way, one it reads differently, and one no corpus holds -- and
+    no vocabulary at all.
+    """
+    return PRINT_TRANSCRIPT
 
 
 @pytest.fixture

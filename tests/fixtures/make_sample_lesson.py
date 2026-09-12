@@ -23,7 +23,9 @@ that the tests exercise the parsing the real files demand:
   the typesetter inserted (`immac-` / `ulate`), which only the dictionary can
   tell apart
 
-It also draws a second, image-only lesson for the no-text-layer case.
+It also draws a second, image-only lesson for the no-text-layer case, and the
+print transcript the cross-check reads -- a document with a geometry of its own,
+described where it is drawn.
 
 The two `englishpod_*dg.mp3` files beside those PDFs are a second of silence
 made with `ffmpeg -f lavfi -i anullsrc=r=22050:cl=mono -t 1 -b:a 32k`: the build
@@ -353,6 +355,172 @@ def build_batch(path: Path, samples: list[Sample]) -> None:
     pdf.save()
 
 
+# The print transcript's own geometry, measured from the corpus: two columns to
+# a page with the page number printed in the gutter between them, and a lesson's
+# title set larger than the dialogue under it -- which is how a reader tells a
+# title from a line of dialogue, and how the tool tells them apart too.
+TRANSCRIPT_COLUMNS = (42.5, 312.5)
+TRANSCRIPT_TITLE_SIZE = 13.0
+TRANSCRIPT_TOP = 60.0
+TRANSCRIPT_BOTTOM = 760.0
+TRANSCRIPT_PITCH = 15.5
+LABEL_GAP = 4.0
+TITLE_PITCH = 27.0
+TITLE_GAP = 34.0
+PAGE_NUMBER_X = 300.0
+PAGE_NUMBER_TOP = 783.0
+PAGE_NUMBER_SIZE = 9.0
+
+
+@dataclass(frozen=True)
+class Printed:
+    """One lesson as the print transcript holds it: a title, and its dialogue."""
+
+    code: str
+    title: str
+    dialogue: list[tuple[str, list[str]]]
+    # Whether the title runs past the column, printing its code beside the second
+    # line, as the print does wherever a title is too long for it.
+    wrapped_title: bool = False
+
+
+class _Flow:
+    """Where the next line of a print transcript goes.
+
+    The print runs its dialogue down one column and then the next, page by page,
+    and a lesson's title sits wherever the flow has reached: a lesson begins a
+    column or a page of its own as rarely as it does in the corpus.
+    """
+
+    def __init__(self, pdf: canvas.Canvas) -> None:
+        self._pdf = pdf
+        self._page = 0
+        self._column = 0
+        self._top = 0.0
+        self._another_page()
+
+    def _another_page(self) -> None:
+        if self._page:
+            self._pdf.showPage()
+        self._page += 1
+        self._column = 0
+        self._top = TRANSCRIPT_TOP
+        self._pdf.setFont(FONT, PAGE_NUMBER_SIZE)
+        self._pdf.drawCentredString(
+            PAGE_NUMBER_X, PAGE_HEIGHT - PAGE_NUMBER_TOP, str(self._page)
+        )
+
+    def _next_column(self) -> None:
+        if self._column + 1 < len(TRANSCRIPT_COLUMNS):
+            self._column += 1
+            self._top = TRANSCRIPT_TOP
+        else:
+            self._another_page()
+
+    def _at(self, height: float) -> float:
+        """Where a line of this height is drawn, moving on when it will not fit."""
+        if self._top + height > TRANSCRIPT_BOTTOM:
+            self._next_column()
+        self._top += height
+        return self._top
+
+    def title(self, lesson: Printed) -> None:
+        """A lesson's title, wrapped over two lines where it is too long for its column."""
+        top = self._at(TITLE_GAP + TITLE_PITCH)
+        self._pdf.setFont(FONT, TRANSCRIPT_TITLE_SIZE)
+        x = TRANSCRIPT_COLUMNS[self._column]
+        if lesson.wrapped_title:
+            first, rest = lesson.title.split(" - ", 1)
+            self._pdf.drawString(x, PAGE_HEIGHT - top, first + " -")
+            top = self._at(TITLE_PITCH)
+            after_title = rest + " "
+        else:
+            rest, after_title = lesson.title, lesson.title + " "
+            self._pdf.drawString(x, PAGE_HEIGHT - top, rest)
+        self._pdf.drawString(
+            x + word_width(after_title, TRANSCRIPT_TITLE_SIZE),
+            PAGE_HEIGHT - top,
+            f"({lesson.code})",
+        )
+
+    def line(self, label: str, text: str) -> None:
+        top = self._at(TRANSCRIPT_PITCH)
+        x = TRANSCRIPT_COLUMNS[self._column]
+        self._pdf.setFont(FONT, BODY_SIZE)
+        if label:
+            self._pdf.drawString(x, PAGE_HEIGHT - top, label)
+            # A hair wider than a space, so that the label reads back as the word
+            # of its own the print prints -- the default word gap would run the
+            # label into what the speaker says.
+            x += word_width(label + " ", BODY_SIZE) + LABEL_GAP
+        self._pdf.drawString(x, PAGE_HEIGHT - top, text)
+
+
+def build_transcript(path: Path, lessons: list[Printed]) -> None:
+    """Draw several lessons into one PDF, as the corpus's print transcript holds them.
+
+    A condensation: two columns to a page, a lesson's title set larger than its
+    dialogue, and no vocabulary at all -- with nothing marking where one lesson
+    ends and the next begins except the row each title prints its code on.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pdf = canvas.Canvas(str(path), pagesize=A4)
+    flow = _Flow(pdf)
+    for lesson in lessons:
+        flow.title(lesson)
+        for label, lines in lesson.dialogue:
+            for index, text in enumerate(lines):
+                flow.line(f"{label}:" if index == 0 else "", text)
+    pdf.save()
+
+
+def as_printed(dialogue: list[tuple[float, list[tuple[float, str]]]]) -> list[tuple[str, list[str]]]:
+    """The sample lesson's dialogue as a printing that wraps it its own way holds it."""
+    turns: list[tuple[str, list[str]]] = []
+    for _top, segments in dialogue:
+        parts = [text for _x, text in segments]
+        if parts[0].endswith(":"):
+            turns.append((parts[0][:-1], [" ".join(parts[1:])]))
+        else:
+            turns[-1][1].append(" ".join(parts))
+    return turns
+
+
+TRANSCRIPT_LESSONS = [
+    # The sample lesson's own dialogue, so that a lesson the print agrees with is
+    # one to hand.
+    Printed(code="C0108", title="The Office - Stocktaking", dialogue=as_printed(DIALOGUE)),
+    # The bicycle lesson, with the code lettered the print's own way: the number
+    # is what says which lesson is meant, and the dialogue is wrapped differently
+    # from the lesson's own, which is not a disagreement.
+    Printed(
+        code="C0110",
+        title="Around Town - Buying a Bicycle",
+        wrapped_title=True,
+        dialogue=[
+            ("A", ["Did you book the room for the", "rehearsal?"]),
+            ("B", ["I booked it, but the piano is out of", "tune."]),
+        ],
+    ),
+    # The kettle lesson, which the print reads differently: two dialogues that
+    # disagree.
+    Printed(
+        code="C0111",
+        title="Daily Life - Fixing the Kettle",
+        dialogue=[
+            ("A", ["The kettle is broken once more."]),
+            ("B", ["I will buy a new one tomorrow."]),
+        ],
+    ),
+    # A lesson no corpus holds: not covered, so not checked and not reported.
+    Printed(
+        code="C0199",
+        title="The Weekend - A Lesson Nobody Has",
+        dialogue=[("A", ["Nobody studies this one."])],
+    ),
+]
+
+
 def build_intro(path: Path, number: str, title: str) -> None:
     """Draw the introduction sheet the corpus keeps in place of a lesson PDF.
 
@@ -397,11 +565,13 @@ if __name__ == "__main__":
     build_batch(batch / "0110-0111.pdf", SAMPLE_LESSONS)
     build_intro(batch / "0110" / "EnglishPod.Intro.0110.pdf", "0110", "Around Town - Buying a Bicycle")
     build_intro(batch / "0111" / "EnglishPod.Intro.0111.pdf", "0111", "Daily Life - Fixing the Kettle")
+    build_transcript(destination / "transcript.pdf", TRANSCRIPT_LESSONS)
     for written in (
         destination / "lesson" / "englishpod_D0108.pdf",
         destination / "scanned_lesson" / "englishpod_C0109.pdf",
         batch / "0110-0111.pdf",
         batch / "0110" / "EnglishPod.Intro.0110.pdf",
         batch / "0111" / "EnglishPod.Intro.0111.pdf",
+        destination / "transcript.pdf",
     ):
         print(f"wrote {written}")

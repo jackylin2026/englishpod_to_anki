@@ -22,13 +22,20 @@ from .layout import (
     term_rows,
 )
 from .lesson import (
+    Dialogue,
     Lesson,
     LessonError,
     Turn,
     VocabularyTerm,
     lesson_file,
     lesson_files,
+    lesson_markdown,
+    lesson_markdowns,
+    read_markdown,
+    render_dialogue,
     render_markdown,
+    same_dialogue,
+    transcript_file,
 )
 
 # The lesson code printed inside the PDF, which the filename may disagree with.
@@ -52,6 +59,27 @@ TERM_COLUMN, PART_OF_SPEECH_COLUMN, DEFINITION_COLUMN = 0, 1, 2
 # out of a page that holds no text, and nothing else about it.
 Reader = Callable[[Path], list[Row]]
 
+# What a document's lesson starts are asked of one row and the row below it:
+# whether the one above is the rest of the title the other carries. A document
+# that prints its titles its own way answers with a rule of its own.
+TitleLine = Callable[[Row, Row], bool]
+
+# What the print transcript is to this stage: something that says what one
+# lesson's dialogue reads as in that printing, by the lesson's number, and
+# nothing else about it. A lesson the transcript does not cover answers with
+# nothing, which is not the same as answering with no dialogue.
+Transcript = Callable[[str], Dialogue | None]
+
+
+@dataclass(frozen=True)
+class CrossCheck:
+    """What the print transcript's version of one lesson's dialogue came to."""
+
+    code: str
+    file: Path
+    written: bool
+    differs: bool
+
 
 @dataclass(frozen=True)
 class Preprocessed:
@@ -59,10 +87,15 @@ class Preprocessed:
 
     markdown: Path
     written: bool
+    check: CrossCheck | None = None
 
 
 def preprocess_lesson(
-    lesson_dir: Path, *, force: bool = False, reader: Reader | None = None
+    lesson_dir: Path,
+    *,
+    force: bool = False,
+    reader: Reader | None = None,
+    transcript: Transcript | None = None,
 ) -> Preprocessed:
     """Write the lesson's Markdown beside its PDF -- or into its directory when
     the lesson is not in that PDF at all.
@@ -77,16 +110,19 @@ def preprocess_lesson(
 
     An existing Markdown file is left alone unless `force`, so that a hand
     correction survives a re-run.
+
+    With a `transcript` -- the print transcript, which says what a lesson's
+    dialogue reads as in that printing -- the transcript's version is written
+    beside the Markdown, and the two are compared. The comparison changes
+    nothing: it is reported, and the lesson is the same lesson either way.
     """
     pdf = lesson_file(lesson_dir, "*.pdf", what="PDF")
-    held = lesson_files(lesson_dir, "*.md")
+    held = lesson_markdowns(lesson_dir)
     # A lesson holds one Markdown, whatever its owner called it: the one that is
     # there is the one a re-run writes to, rather than a second file beside it.
-    markdown = (
-        lesson_file(lesson_dir, "*.md", what="Markdown") if held else pdf.with_suffix(".md")
-    )
+    markdown = lesson_markdown(lesson_dir) if held else pdf.with_suffix(".md")
     if markdown.exists() and not force:
-        return Preprocessed(markdown=markdown, written=False)
+        return _checked(markdown, written=False, transcript=transcript, force=force)
 
     rows = read_rows(pdf)
     scanned = not rows
@@ -114,7 +150,44 @@ def preprocess_lesson(
             markdown = lesson_dir / f"englishpod_{lesson.code}.md"
 
     markdown.write_text(render_markdown(lesson), encoding="utf-8")
-    return Preprocessed(markdown=markdown, written=True)
+    return _checked(markdown, written=True, transcript=transcript, force=force)
+
+
+def _checked(
+    markdown: Path, *, written: bool, transcript: Transcript | None, force: bool
+) -> Preprocessed:
+    """One lesson done, with the print transcript's version of it checked.
+
+    A lesson the transcript does not cover is not checked and gets no file beside
+    it: the print holds no dialogue for it, so there is nothing to compare and
+    nothing to report either. What the check reads is the lesson's own Markdown,
+    so that a correction made to it by hand is the dialogue the lesson is
+    checked with -- and the lesson is one a run may now report for what is wrong
+    with its Markdown, where it used to be left alone unread.
+    """
+    if transcript is None:
+        return Preprocessed(markdown=markdown, written=written)
+    lesson = read_markdown(markdown)
+    theirs = transcript(lesson.code[1:])
+    if theirs is None:
+        return Preprocessed(markdown=markdown, written=written)
+    beside = transcript_file(markdown)
+    # Written once and left alone after, as the Markdown itself is: the file is
+    # the print's reading of the lesson rather than the run's, and `--force` is
+    # what asks for it again.
+    wrote = force or not beside.exists()
+    if wrote:
+        beside.write_text(render_dialogue(theirs), encoding="utf-8")
+    return Preprocessed(
+        markdown=markdown,
+        written=written,
+        check=CrossCheck(
+            code=lesson.code,
+            file=beside,
+            written=wrote,
+            differs=not same_dialogue(lesson.dialogue, theirs),
+        ),
+    )
 
 
 def _rows(path: Path) -> list[Row]:
@@ -145,7 +218,7 @@ def lesson_in(rows: list[Row]) -> Lesson | None:
         (index for index in (key_at, supplementary_at) if index is not None), default=None
     )
 
-    code, dialogue = _dialogue(rows[:first_table_at] if first_table_at is not None else rows)
+    code, dialogue = dialogue_in(rows[:first_table_at] if first_table_at is not None else rows)
     if code is None:
         return None
     return Lesson(
@@ -189,26 +262,59 @@ def _lesson_beside(lesson_dir: Path, pdf: Path) -> list[Row]:
     )
 
 
-def lesson_rows(rows: list[Row], number: str) -> list[Row] | None:
-    """One lesson's rows out of a document holding several, or None if none is it.
+def _is_title_line(above: Row, below: Row) -> bool:
+    """Whether a row is the first line of the title the row below it carries.
 
-    A lesson begins at its title and ends where the next lesson's begins. The
-    title is not always one row: a title too long for its column prints on two,
-    and the code is beside the second -- so the row the code is on is walked
-    back over the line above it when that line is the rest of the same title.
-    Getting this wrong is expensive in a quiet way: a title line spans the
-    columns of a vocabulary table, and one left at the end of the lesson before
-    takes its columns with it, flattening that lesson's tables into one cell.
+    The rest of a title sits one line's height above the line holding the code,
+    and is one run of words: a row of a vocabulary table would show the gaps
+    between its columns. It also has to be above: the row before a lesson's first
+    one in a document printed in columns is the previous column's last line, and
+    a height measured upwards is a height no line can sit at.
     """
-    starts = _lesson_starts(rows)
-    for position, (start, code) in enumerate(starts):
-        if code[1:] != number:
-            continue
-        return rows[start : starts[position + 1][0] if position + 1 < len(starts) else len(rows)]
+    if above.page != below.page or not 0 < below.top - above.top <= TITLE_LINE_HEIGHT:
+        return False
+    return all(b.x0 - a.x1 < MIN_GUTTER for a, b in zip(above.words, above.words[1:]))
+
+
+def lessons_in(
+    rows: list[Row], *, title_line: TitleLine = _is_title_line, code: re.Pattern[str] = CODE
+) -> list[tuple[str, list[Row]]]:
+    """One document's rows split by lesson, in the order the document holds them.
+
+    A lesson begins at its title and ends where the next lesson's begins, and it
+    is answered for by its number: the digits it prints, which is what says which
+    lesson is meant when a document prints the rest of the code its own way --
+    the print transcript's level letters are the print's, not the corpus's, and
+    its digits are the print's too, two of its lessons being printed `(D046)` and
+    `(C068)` for lessons 0046 and 0068.
+
+    What a document's own title looks like, and what its codes look like, are the
+    document's business: `title_line` and `code` are what it is asked. Getting
+    the title wrong is expensive in a quiet way: a title line spans the columns
+    of a vocabulary table, and one left at the end of the lesson before takes its
+    columns with it, flattening that lesson's tables into one cell.
+    """
+    starts = _lesson_starts(rows, title_line, code)
+    return [
+        (
+            code[1:],
+            rows[start : starts[position + 1][0] if position + 1 < len(starts) else len(rows)],
+        )
+        for position, (start, code) in enumerate(starts)
+    ]
+
+
+def lesson_rows(rows: list[Row], number: str) -> list[Row] | None:
+    """One lesson's rows out of a document holding several, or None if none is it."""
+    for found, lesson in lessons_in(rows):
+        if found == number:
+            return lesson
     return None
 
 
-def _lesson_starts(rows: list[Row]) -> list[tuple[int, str]]:
+def _lesson_starts(
+    rows: list[Row], title_line: TitleLine, code: re.Pattern[str]
+) -> list[tuple[int, str]]:
     """Where each lesson in a document begins, and the code it begins with.
 
     The walk back over a title's first line never reaches the lesson before:
@@ -218,27 +324,15 @@ def _lesson_starts(rows: list[Row]) -> list[tuple[int, str]]:
     begins: list[tuple[int, str]] = []
     previous_code = -1
     for index, row in enumerate(rows):
-        found = CODE.search(row.text)
+        found = code.search(row.text)
         if found is None:
             continue
         start = index
-        while start > previous_code + 1 and _is_title_line(rows[start - 1], rows[start]):
+        while start > previous_code + 1 and title_line(rows[start - 1], rows[start]):
             start -= 1
         begins.append((start, found.group(1)))
         previous_code = index
     return begins
-
-
-def _is_title_line(above: Row, below: Row) -> bool:
-    """Whether a row is the first line of the title the row below it carries.
-
-    The rest of a title sits one line's height above the line holding the code,
-    and is one run of words: a row of a vocabulary table would show the gaps
-    between its columns.
-    """
-    if above.page != below.page or below.top - above.top > TITLE_LINE_HEIGHT:
-        return False
-    return all(b.x0 - a.x1 < MIN_GUTTER for a, b in zip(above.words, above.words[1:]))
 
 
 def _heading(rows: list[Row], heading: str) -> int | None:
@@ -255,7 +349,7 @@ def _section(rows: list[Row], start: int | None, stop: int | None) -> list[Row]:
     return rows[start + 1 : stop if stop is not None else len(rows)]
 
 
-def _dialogue(rows: list[Row]) -> tuple[str | None, tuple[Turn, ...]]:
+def dialogue_in(rows: list[Row]) -> tuple[str | None, tuple[Turn, ...]]:
     """The lesson code from the title block, and the dialogue.
 
     The dialogue is one turn per speaker, each turn keeping the physical lines

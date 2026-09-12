@@ -13,11 +13,19 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from html import unescape
 from pathlib import Path
 
 from .dictionary import core
-from .lesson import Dialogue, Lesson, LessonError, VocabularyTerm, lesson_file, read_markdown
+from .lesson import (
+    Dialogue,
+    Lesson,
+    LessonError,
+    VocabularyTerm,
+    lesson_file,
+    lesson_markdown,
+    read_markdown,
+    unescaped,
+)
 
 # How the card is told what a word sounds like: a callable taking the word and
 # giving back its transcription, or nothing at all. Where the dictionaries, the
@@ -145,7 +153,7 @@ def build_note(lesson_dir: Path, *, transcribe: Transcriber) -> Note:
     cannot: a note with nothing blanked looks complete in the collection and
     asks the learner nothing.
     """
-    lesson = read_markdown(lesson_file(lesson_dir, "*.md", what="Markdown"))
+    lesson = read_markdown(lesson_markdown(lesson_dir))
     audio = dialogue_audio(lesson_dir)
     blanked = blank(lesson.dialogue, lesson.key_vocabulary)
     if not blanked.blanks:
@@ -237,7 +245,7 @@ def plain_dialogue(field: str) -> str:
     filled = CLOZE.sub(r"\1", field)
     words = [
         PUNCTUATION.sub("", word)
-        for word in SPACE.sub(" ", _unescaped(MARKUP.sub(" ", filled))).split()
+        for word in SPACE.sub(" ", unescaped(MARKUP.sub(" ", filled))).split()
     ]
     return " ".join(word for word in words if word)
 
@@ -245,19 +253,6 @@ def plain_dialogue(field: str) -> str:
 def recordings(field: str) -> tuple[str, ...]:
     """The recordings a card plays, by the filenames it was given them under."""
     return tuple(SOUND.findall(field))
-
-
-def _unescaped(text: str) -> str:
-    """A field's text with its HTML entities resolved, as far as they go.
-
-    Once is not always enough. A lesson whose text layer prints `&quot;` reaches
-    its card as `&amp;quot;`, since the field escapes what the lesson already
-    escaped; a card made by hand from the same dialogue holds the character
-    itself. Both are the same words, so both are read back to them.
-    """
-    while (once := unescape(text)) != text:
-        text = once
-    return text
 
 
 def design_differences(

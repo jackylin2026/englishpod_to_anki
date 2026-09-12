@@ -18,7 +18,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import corpus, transcription
+from . import corpus, print_transcript, transcription
 from .anki import DEFAULT_URL, AnkiConnectError
 from .card import Note, build_note
 from .importer import (
@@ -33,7 +33,7 @@ from .importer import (
 )
 from .lesson import LessonError
 from .ocr import BASE as OCR_URL, Baidu, OcrError, credentials
-from .preprocess import Preprocessed, Reader, preprocess_lesson
+from .preprocess import CrossCheck, Preprocessed, Reader, Transcript, preprocess_lesson
 
 # Every stage takes one path, which is either one lesson's directory or the
 # corpus directory holding them all.
@@ -44,7 +44,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.command == "preprocess":
-            return _preprocess(args.target, force=args.force, ocr=args.ocr, url=args.ocr_url)
+            return _preprocess(
+                args.target,
+                force=args.force,
+                ocr=args.ocr,
+                url=args.ocr_url,
+                transcript=args.print_transcript,
+            )
         if args.command == "build":
             return _build(args.target, _transcriptions(args))
         return _import(
@@ -82,6 +88,13 @@ def _parser() -> argparse.ArgumentParser:
         "--ocr-url",
         default=OCR_URL,
         help=f"where the OCR service answers (default {OCR_URL})",
+    )
+    preprocess.add_argument(
+        "--print-transcript",
+        type=Path,
+        help="the condensed print transcript to check each lesson's dialogue "
+        "against: its version of a lesson is written beside the lesson's "
+        "Markdown, and a lesson whose dialogue reads differently is reported",
     )
 
     build = stages.add_parser("build", help="show the note a lesson's Markdown makes")
@@ -152,10 +165,13 @@ def _transcriptions(args: argparse.Namespace) -> transcription.Transcriptions:
     )
 
 
-def _preprocess(target: Path, *, force: bool, ocr: bool, url: str) -> int:
+def _preprocess(
+    target: Path, *, force: bool, ocr: bool, url: str, transcript: Path | None
+) -> int:
     reader = _ocr_pass(url) if ocr else None
+    checked = _print_transcript(transcript) if transcript else None
     if not (lessons := corpus.lessons(target)):
-        result = _preprocess_one(target, force=force, reader=reader)
+        result = _preprocess_one(target, force=force, reader=reader, transcript=checked)
         if not result.written:
             print(
                 f"preprocess: {result.markdown} already exists; left untouched "
@@ -165,19 +181,23 @@ def _preprocess(target: Path, *, force: bool, ocr: bool, url: str) -> int:
 
     run = corpus.run(
         lessons,
-        lambda lesson: _preprocess_one(lesson, force=force, reader=reader),
+        lambda lesson: _preprocess_one(lesson, force=force, reader=reader, transcript=checked),
         # A service that will not read the next page will not read the one after
         # it either, so the run stops where it happened rather than asking three
         # hundred more times and being refused the same way each time.
         halt=(OcrError,),
     )
     written = sum(result.written for result in run.worked)
+    checks = [result.check for result in run.worked if result.check]
+    differing = sum(check.differs for check in checks)
     return _summarize(
         "preprocess",
         run,
         counts=(
             (written, "written"),
             (len(run.worked) - written, "already had a Markdown file"),
+            (sum(check.written for check in checks), "transcript files written"),
+            (differing, f"of {len(checks)} disagreed with the print transcript"),
         ),
     )
 
@@ -193,18 +213,48 @@ def _ocr_pass(url: str) -> Reader:
     return Baidu(key=key, secret=secret, url=url).read
 
 
-def _preprocess_one(lesson: Path, *, force: bool, reader: Reader | None) -> Preprocessed:
+def _print_transcript(path: Path) -> Transcript:
+    """The print transcript, ready to say what a lesson's dialogue reads as there.
+
+    Read before the run rather than at the first lesson it covers, so that a file
+    that is not a print transcript is said at once instead of after however many
+    lessons it takes to reach one the document holds.
+    """
+    return print_transcript.read(path).dialogue
+
+
+def _preprocess_one(
+    lesson: Path, *, force: bool, reader: Reader | None, transcript: Transcript | None
+) -> Preprocessed:
     """Write one lesson's Markdown, saying so when it wrote one.
 
     A run over a corpus reports the lessons it wrote a line each, so the saying
     so belongs to the lesson rather than to the run: a Markdown left as it was
     is reported by the run's summary instead, which does not repeat the way to
     regenerate it three hundred times over.
+
+    The print transcript's version of the lesson is written beside it, and the
+    two are compared -- a comparison that says what it found and changes nothing,
+    so its word belongs with the other things a lesson leaves for a person.
     """
-    result = preprocess_lesson(lesson, force=force, reader=reader)
+    result = preprocess_lesson(lesson, force=force, reader=reader, transcript=transcript)
     if result.written:
         print(f"preprocess: wrote {result.markdown}")
+    if result.check is not None:
+        if result.check.written:
+            print(f"preprocess: wrote {result.check.file}")
+        _report_dialogue(result.check)
     return result
+
+
+def _report_dialogue(check: CrossCheck) -> None:
+    """Name a lesson whose dialogue the print transcript reads differently."""
+    if check.differs:
+        print(
+            f"{check.code}: the print transcript's dialogue differs from the "
+            f"lesson's; see {check.file}",
+            file=sys.stderr,
+        )
 
 
 def _build(target: Path, transcriptions: transcription.Transcriptions) -> int:

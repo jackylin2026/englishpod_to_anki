@@ -192,6 +192,44 @@ offline dictionary (`cmudict`): `immac-` / `ulate` becomes `immaculate`, while
 word the dictionary does not know keeps its hyphen rather than have one guessed
 away.
 
+### Cross-checking against the print transcript
+
+The corpus also keeps a second printing of its dialogue: the condensed print
+transcript, two columns to a page, holding dialogues for most of the first 330
+lessons and no vocabulary at all. Point `preprocess` at it and every lesson it
+covers is checked against it:
+
+```
+englishpod-to-anki preprocess /path/to/corpus --print-transcript "/path/to/English_Pod_1-330….pdf"
+```
+
+The print's version of a lesson's dialogue is written beside the lesson's own
+Markdown, as `englishpod_D0108.transcript.md` — a dialogue and nothing else, for
+reading next to the lesson's file. The two are then compared, and a lesson whose
+dialogue reads differently is named on stderr:
+
+```
+C0108: the print transcript's dialogue differs from the lesson's; see /path/to/corpus/英语博客100-150/0108/englishpod_D0108.transcript.md
+preprocess: 365 lessons: 365 already had a Markdown file, 329 transcript files written, 38 of 329 disagreed with the print transcript, 0 skipped
+```
+
+It is a warning and nothing more. The lesson's Markdown, the file beside it and
+the card built from it are the lesson's own either way, and the run carries on: a
+parsing regression is something to look at rather than something the tool decides
+about. A lesson the print does not cover — lessons 331 onwards, and the one its
+own printing drops between 1 and 330 — is not checked, gets no file, and is not
+reported.
+
+Two dialogues are the same dialogue when the letters and digits they are made of
+are the same in the same order. The print is not the lesson's own document and
+its text layer is its own: it spaces, hyphenates and punctuates its lines its own
+way, drops the apostrophes contractions were typed with, and prints a lesson's
+code as its own printing has it (`C0003` where the lesson's document says
+`B0003`, and `(D046)` for lesson 0046 — the number is what says which lesson is
+meant). None of that is a disagreement; a word added, dropped or moved is. The
+transcript's file for a lesson is written once and left alone after, like the
+Markdown: `--force` is what asks for it again.
+
 ## Building a card
 
 Point `build` at a lesson directory holding its Markdown and its dialogue audio,

@@ -1,8 +1,9 @@
-"""Recovering the physical layout of a lesson PDF.
+"""Recovering the physical layout of a PDF.
 
 A lesson PDF holds one column of dialogue followed by two three-column
-vocabulary tables. Nothing in the file marks where a column begins, so the
-geometry is recovered from where the words sit on the page.
+vocabulary tables; the corpus's print transcript holds two columns of dialogue
+to a page. Nothing in either file marks where a column begins, so the geometry is
+recovered from where the words sit on the page.
 
 Reading the words back out is part of the same job: the page breaks words and
 prints contractions as several runs of glyphs, and putting them back together
@@ -12,6 +13,7 @@ needs to know where the columns end and what the words are.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -57,9 +59,17 @@ HEADER = re.compile(r"^EnglishPod$|LearnEnglishonyourTerms", re.IGNORECASE)
 
 @dataclass(frozen=True)
 class Word:
+    """One word of a row: what it says, where it sits, and the size it is set in.
+
+    The size is what a document says about a word without words -- a heading is
+    set larger than the dialogue under it -- and is absent when the reading has
+    none to give, as a page read back off its own picture by the OCR pass has.
+    """
+
     text: str
     x0: float
     x1: float
+    size: float | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +85,7 @@ class Seen:
     top: float
     x0: float
     x1: float
+    size: float | None = None
 
 
 @dataclass(frozen=True)
@@ -103,7 +114,36 @@ class Row:
 
 
 def read_rows(path: Path) -> list[Row]:
-    """Every physical line of the PDF in reading order, page footers dropped.
+    """Every physical line of a one-column PDF in reading order, footers dropped."""
+    rows: list[Row] = []
+    for number, words in _pages(path):
+        rows += page_rows(number, words)
+    return rows
+
+
+def read_columns(path: Path) -> list[Row]:
+    """Every physical line of a PDF printed in columns, in reading order.
+
+    A page printed in columns is not read the way a page of one column is: a line
+    belongs to the column it sits in rather than to the row it shares a height
+    with, so the words are split into the page's columns first and each column is
+    read top to bottom, the columns left to right, page by page.
+
+    The page's own number is printed at the foot of the page, in the gutter
+    between the columns. It belongs to the page rather than to what is printed in
+    the columns, and reading it as one of them would cut the gutter in two and
+    take the page's columns with it.
+    """
+    rows: list[Row] = []
+    for number, words in _pages(path, sizes=True):
+        lines = _without_the_page_number(_by_top(words))
+        for column in _columns(lines):
+            rows += page_rows(number, column)
+    return rows
+
+
+def _pages(path: Path, *, sizes: bool = False) -> Iterator[tuple[int, list[Seen]]]:
+    """Every page's words in order, whichever way the caller reads lines off them.
 
     A file that is not a PDF this can open -- truncated, or not a PDF at all --
     is the lesson's problem rather than the run's, so it is reported the way
@@ -111,20 +151,47 @@ def read_rows(path: Path) -> list[Row]:
     carries on, and a stage pointed at it says what is wrong rather than letting
     the library's error out as a traceback.
     """
-    rows: list[Row] = []
     try:
         with pdfplumber.open(path) as pdf:
             for number, page in enumerate(pdf.pages):
-                rows += page_rows(
-                    number,
-                    [
-                        Seen(text=word["text"], top=word["top"], x0=word["x0"], x1=word["x1"])
-                        for word in _words(page)
-                    ],
-                )
+                yield number, _page_words(page, sizes=sizes)
     except (OSError, PdfminerException) as error:
         raise LessonError(f"cannot read {path}: {error}") from error
-    return rows
+
+
+def _page_words(page: pdfplumber.page.Page, *, sizes: bool = False) -> list[Seen]:
+    """A page's words, as the kind of reading every way of reading lines works in."""
+    return [
+        Seen(
+            text=word["text"],
+            top=word["top"],
+            x0=word["x0"],
+            x1=word["x1"],
+            size=word.get("size"),
+        )
+        for word in _words(page, sizes=sizes)
+    ]
+
+
+def _without_the_page_number(lines: list[list[Seen]]) -> list[list[Seen]]:
+    """A page's lines with its own number taken off the foot, if it carries one."""
+    if lines and " ".join(word.text for word in lines[-1]).strip().isdigit():
+        return lines[:-1]
+    return lines
+
+
+def _columns(lines: list[list[Seen]]) -> list[list[Seen]]:
+    """A page's lines as its columns' words, left to right.
+
+    A page whose lines stand in one column answers with them all at once, which
+    is what makes a document that is not printed in columns readable this way
+    too.
+    """
+    edges = _column_edges((word.x0, word.x1) for line in lines for word in line)
+    return [
+        [word for line in lines for word in line if _column_of(word.x0, edges) == index]
+        for index in range(len(edges))
+    ]
 
 
 def page_rows(page: int, seen: Sequence[Seen]) -> list[Row]:
@@ -140,7 +207,9 @@ def page_rows(page: int, seen: Sequence[Seen]) -> list[Row]:
             page=page,
             top=max(word.top for word in line),
             words=tuple(
-                _rejoin_apostrophes([Word(word.text, word.x0, word.x1) for word in line])
+                _rejoin_apostrophes(
+                    [Word(word.text, word.x0, word.x1, word.size) for word in line]
+                )
             ),
         )
         if not _trappings(row):
@@ -167,7 +236,7 @@ def _rejoin_apostrophes(words: list[Word]) -> list[Word]:
             apostrophe_alone or _is_stray_apostrophe(word) or _is_contraction_tail(word, rejoined[-1])
         ):
             last = rejoined[-1]
-            rejoined[-1] = Word(last.text + word.text, last.x0, word.x1)
+            rejoined[-1] = Word(last.text + word.text, last.x0, word.x1, last.size)
         else:
             rejoined.append(word)
         # Only an apostrophe we just took in as a fragment of its own wants what
@@ -197,15 +266,23 @@ def _is_stray_apostrophe(word: Word) -> bool:
     return word.text != "" and word.text.strip("'’") == ""
 
 
-def _words(page: pdfplumber.page.Page) -> list[dict[str, Any]]:
+def _words(page: pdfplumber.page.Page, *, sizes: bool = False) -> list[dict[str, Any]]:
     """A page's words, grouped as the PDF itself laid them out.
 
     Reading the flow rather than the page geometry keeps a wide speaker label
     whole on the lessons where it overlaps the first word of what that speaker
     says. Both are drawn over each other, and ordering by position alone
     interleaves their letters.
+
+    A word's size is how a document that sets its headings larger than its body
+    says which lines are which, and it is asked for only where it is wanted: a
+    page's words are grouped by the attributes they are asked for, so asking for
+    a lesson's sizes reads the lesson's lines differently -- measured on the
+    corpus, on every page of one of its lessons.
     """
-    return page.extract_words(use_text_flow=True)
+    return page.extract_words(
+        use_text_flow=True, extra_attrs=["size"] if sizes else None
+    )
 
 
 def _by_top(seen: Sequence[Seen]) -> list[list[Seen]]:
@@ -223,15 +300,20 @@ def _by_top(seen: Sequence[Seen]) -> list[list[Seen]]:
 
 
 def columns(rows: list[Row]) -> tuple[float, ...]:
-    """The left edge of each column of a vocabulary table.
+    """The left edge of each column of a vocabulary table."""
+    return _column_edges((word.x0, word.x1) for row in rows for word in row.words)
 
-    The two widest gaps that stay empty down the whole table separate the
+
+def _column_edges(spans: Iterable[tuple[float, float]]) -> tuple[float, ...]:
+    """The left edge of each column the given words stand in.
+
+    The two widest gaps that stay empty down the whole of them separate the
     columns. Narrower empty gaps are the stretched spaces of a justified line
     inside a cell, which can be wider than a column's own margin.
     """
-    if not rows:
+    spans = sorted(spans)
+    if not spans:
         return ()
-    spans = sorted((word.x0, word.x1) for row in rows for word in row.words)
     merged = [list(spans[0])]
     for start, end in spans[1:]:
         if start <= merged[-1][1]:
@@ -249,11 +331,11 @@ def columns(rows: list[Row]) -> tuple[float, ...]:
     return (merged[0][0], *sorted(start for _width, start in gutters[:2]))
 
 
-def _column_of(word: Word, edges: tuple[float, ...]) -> int:
-    """Which column a word falls in, given the columns' left edges."""
+def _column_of(x0: float, edges: tuple[float, ...]) -> int:
+    """Which column the word starting here falls in, given the columns' left edges."""
     index = 0
     for position, edge in enumerate(edges):
-        if word.x0 >= edge - 0.5:
+        if x0 >= edge - 0.5:
             index = position
     return index
 
@@ -344,6 +426,6 @@ def cell(rows: list[Row], edges: tuple[float, ...], index: int) -> str:
         word.text
         for row in rows
         for word in row.words
-        if _column_of(word, edges) == index
+        if _column_of(word.x0, edges) == index
     ]
     return " ".join(heal_wrapped_words(fragments))

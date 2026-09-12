@@ -13,7 +13,7 @@ One EnglishPod episode.
 _Avoid_: episode, unit, track
 
 **Lesson directory**:
-The directory the corpus keeps one lesson in: it holds that lesson's files, and no lesson of its own. Both facts are needed, because the corpus also keeps batch directories holding ten lessons *and* a combined PDF of those ten.
+The directory the corpus keeps one lesson in: it holds that lesson's files, and no lesson of its own. Both facts are needed, because the corpus also keeps batch directories holding ten lessons *and* a combined PDF of those ten. It holds the lesson's own Markdown, and may hold the print transcript's file for the lesson beside it.
 _Avoid_: lesson folder, lesson path
 
 **Batch directory**:
@@ -45,8 +45,12 @@ The reading of a lesson whose PDF holds no text at all — a page printed to out
 _Avoid_: OCR stage, scanning, image pass
 
 **Print transcript**:
-The condensed corpus-wide PDF containing dialogues for most lessons, and no vocabulary at all.
+The condensed corpus-wide PDF containing dialogues for most lessons, and no vocabulary at all. It is split into one transcript file per lesson it covers, and each lesson's dialogue is checked against it.
 _Avoid_: the print PDF, the condensed PDF
+
+**Transcript file**:
+The print transcript's version of one lesson's dialogue, written beside the lesson's Markdown for a lesson the print covers and holding the `## Dialogue` section and nothing else. It is not the lesson's Markdown — that is the one file in the directory the lesson's own document was read into — and it names no lesson code, so nothing reads it as a lesson.
+_Avoid_: transcription file, slice, dialogue file
 
 **Dialogue**:
 A lesson's scripted conversation. Each turn opens with a speaker label — a colon after one or two capitalised words, so `A:`, `C:`, `Steven:`, `Team A:`. There are no timestamps and no line numbers.
