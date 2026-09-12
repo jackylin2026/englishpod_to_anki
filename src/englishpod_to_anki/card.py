@@ -1,22 +1,28 @@
 """The lesson card: the single note a lesson's Markdown produces.
 
 Building is the stage that decides what a lesson looks like in Anki, so this is
-where the card's design lives: the dialogue with its blanks, the glossary, the
-audio it plays, and the identity a later run finds it by. It reads Markdown and
-nothing else -- never a PDF -- so that a corrected Markdown is the only input
-that matters.
+where the card's design lives: the dialogue with its blanks, the phonetic
+transcriptions, the glossary, the audio it plays, and the identity a later run
+finds it by. It reads Markdown and nothing else -- never a PDF, and never a
+dictionary: how a word sounds is handed to it as a callable, so that a corrected
+Markdown is the only input that matters.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from html import unescape
 from pathlib import Path
 
 from .dictionary import core
 from .lesson import Dialogue, Lesson, LessonError, VocabularyTerm, lesson_file, read_markdown
+
+# How the card is told what a word sounds like: a callable taking the word and
+# giving back its transcription, or nothing at all. Where the dictionaries, the
+# file and the network live is the stage's business rather than the card's.
+Transcriber = Callable[[str], str]
 
 # Every note lands in the deck the learner already keeps, and the note type is
 # named so that nothing resolves Anki's built-in `Cloze` by mistake.
@@ -106,6 +112,7 @@ class Note:
     fields: dict[str, str]
     audio: Path
     unmatched_terms: tuple[str, ...]
+    untranscribed_terms: tuple[str, ...]
 
     def as_json(self) -> dict:
         """The note as the build stage emits it: everything import would send."""
@@ -117,6 +124,7 @@ class Note:
             "fields": dict(self.fields),
             "audio": {"filename": self.audio.name, "path": str(self.audio)},
             "unmatched_terms": list(self.unmatched_terms),
+            "untranscribed_terms": list(self.untranscribed_terms),
         }
 
 
@@ -129,7 +137,7 @@ class Blanked:
     blanks: int
 
 
-def build_note(lesson_dir: Path) -> Note:
+def build_note(lesson_dir: Path, *, transcribe: Transcriber) -> Note:
     """The note the lesson in `lesson_dir` produces, without touching Anki.
 
     Raises `LessonError` if the lesson cannot make the card the design calls
@@ -142,6 +150,10 @@ def build_note(lesson_dir: Path) -> Note:
     blanked = blank(lesson.dialogue, lesson.key_vocabulary)
     if not blanked.blanks:
         raise LessonError(f"{lesson_dir} has no vocabulary to draw blanks from")
+    # Asked for after the lesson is known to be one the card can be made from,
+    # so that a lesson the tool cannot build never sends anyone looking for a
+    # word.
+    symbols, untranscribed = phonetic_symbols(lesson, transcribe)
     return Note(
         code=lesson.code,
         deck=DECK,
@@ -149,7 +161,7 @@ def build_note(lesson_dir: Path) -> Note:
         tags=(TAG + lesson.code,),
         fields={
             SENTENCES: blanked.sentences,
-            "Phonetic symbols": "",
+            "Phonetic symbols": symbols,
             "Words": glossary(lesson),
             "Synonym": "",
             "Word Family": "",
@@ -157,7 +169,49 @@ def build_note(lesson_dir: Path) -> Note:
         },
         audio=audio,
         unmatched_terms=blanked.unmatched,
+        untranscribed_terms=untranscribed,
     )
+
+
+def phonetic_symbols(lesson: Lesson, transcribe: Transcriber) -> tuple[str, tuple[str, ...]]:
+    """The card's phonetic transcriptions, and the words nothing had a saying on.
+
+    Both vocabulary tables feed it, as they feed the glossary below it: what the
+    card shows above a term's meaning is how that term is said. Only single
+    words are asked about -- a phrase has no one pronunciation to give, and a
+    guessed one is worse than none -- and a word the tables carry twice is
+    transcribed once, in the place it first appears.
+
+    A word that comes back with nothing is left out of the field and handed back
+    beside it: the card is still a card, and what is missing from it is said
+    rather than shown.
+    """
+    symbols: list[str] = []
+    missing: list[str] = []
+    seen: set[str] = set()
+    for term in (*lesson.key_vocabulary, *lesson.supplementary_vocabulary):
+        word = _single_word(term.term)
+        if word is None or core(word) in seen:
+            continue
+        seen.add(core(word))
+        if transcription := transcribe(core(word)):
+            symbols.append(transcription)
+        else:
+            missing.append(word)
+    return "<br>".join(symbols), tuple(missing)
+
+
+def _single_word(term: str) -> str | None:
+    """The one word a term is, or None when it is more than one word.
+
+    `(be) overstocked` is the word `overstocked`: a bracketed annotation is a
+    note to the reader about how the word is used, not part of the word, and it
+    comes off here as it comes off before the dialogue is searched. What is left
+    is a word as the tool asks about words -- its case and the punctuation
+    around it say nothing about it.
+    """
+    words = _words(term)
+    return words[0] if len(words) == 1 else None
 
 
 def dialogue_audio(lesson_dir: Path) -> Path:
@@ -315,6 +369,17 @@ def _tokens(dialogue: Dialogue) -> list[Token]:
     return tokens
 
 
+def _words(term: str) -> list[str]:
+    """The words a vocabulary term is made of, as the tool weighs words.
+
+    A bracketed annotation is a note to the reader rather than part of the term,
+    and a word's case and the punctuation a table hangs off it say nothing about
+    which word is meant -- so `(be) overstocked` is one word, and `Chapter
+    eleven.` is two.
+    """
+    return [key for key in (core(word) for word in ANNOTATION.sub(" ", term).split()) if key]
+
+
 def _forms(term: str) -> list[tuple[str, ...]]:
     """Every shape of the term a dialogue line may carry.
 
@@ -323,7 +388,7 @@ def _forms(term: str) -> list[tuple[str, ...]]:
     trip` find `road trips`. One word at a time: two at once is not an
     inflection a term takes.
     """
-    words = [key for key in (core(word) for word in ANNOTATION.sub(" ", term).split()) if key]
+    words = _words(term)
     if not words:
         return []
     forms = [tuple(words)]

@@ -17,3 +17,8 @@ englishpod-to-anki = "englishpod_to_anki.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# The resolved transcriptions are data the tool ships and the learner edits, so
+# an install that is not an editable one still carries them.
+[tool.setuptools.package-data]
+englishpod_to_anki = ["transcriptions.tsv"]

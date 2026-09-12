@@ -94,6 +94,20 @@ def test_the_note_lands_in_the_englishpod_deck(markdown_lesson: Path, anki, run_
     assert note["tags"] == ["englishpod::C0108"]
 
 
+def test_the_note_the_collection_is_sent_carries_the_phonetic_transcriptions(
+    markdown_lesson: Path, anki, run_cli
+) -> None:
+    """Import builds the card build builds, down to what a word sounds like."""
+    assert imported(markdown_lesson, anki, run_cli).returncode == 0
+
+    (request,) = anki.sent("addNote")
+    symbols = request["note"]["fields"]["Phonetic symbols"]
+    assert symbols.startswith("/ˈstɑˌkrum/<br>")
+    assert "/ˈplʌndʒ/" in symbols
+    # A phrase has no transcription of its own.
+    assert "write off" not in symbols
+
+
 def test_the_note_type_is_created_when_the_collection_lacks_it(
     markdown_lesson: Path, anki, run_cli
 ) -> None:

@@ -203,8 +203,10 @@ englishpod-to-anki build /path/to/corpus > notes.jsonl
 ```
 
 It prints the note it would create as JSON — the deck, the note type, the six
-fields, the audio, and the tag that identifies it — and touches nothing, one
-JSON document per line for a run over the corpus. The
+fields, the audio, and the tag that identifies it — and touches no collection
+and no lesson, one JSON document per line for a run over the corpus. It does
+write what it learns about words: see [Phonetic
+transcriptions](#phonetic-transcriptions) below. The
 `Sentences` field holds the dialogue with every Key Vocabulary term it carries
 blanked out; `Words` holds both vocabulary tables as `term -> definition`. The
 dialogue breaks where the page broke: an intra-paragraph wrap after a space, a
@@ -216,6 +218,48 @@ annotations ignored (`(be) overstocked` is `overstocked`). A term the dialogue
 never carries is listed under `unmatched_terms` and reported on stderr: the
 corpus has rows like `chapter elven` for `eleven`, and those want a human eye
 rather than a fuzzy match.
+
+### Phonetic transcriptions
+
+The `Phonetic symbols` field carries IPA for the lesson's single-word terms,
+from both vocabulary tables, and nothing for a phrase — a term gets a
+transcription wherever on the answer side it appears, and a phrase has no one
+pronunciation to give. Each word is resolved once, in a fixed order: the file
+below, then the offline dictionary (`cmudict`, which already settles
+de-hyphenation), then the free online dictionary at `api.dictionaryapi.dev`,
+then Wiktionary.
+
+```
+englishpod-to-anki build /path/to/lesson --offline
+```
+
+That file is `src/englishpod_to_anki/transcriptions.tsv`, committed with the
+tool: one `word<TAB>transcription` to a line, and `-` for a word no dictionary
+has. A word written in it is never looked up again, and the file is read
+*before* any dictionary, so it is also where you correct a transcription — an
+entry you write by hand wins over the offline dictionary too, and no lookup
+overwrites one. The file is rewritten from its entries as a run learns words, so
+keep comments outside it; the line it opens with says what a line is.
+
+`--offline` keeps a build to the offline dictionary and the file and touches the
+network not at all. Without it, a build asks the online dictionaries about the
+words those two cannot answer, once for the whole corpus, and remembers the
+answers. What it will not do is treat a service's silence as an answer: a
+dictionary that cannot be reached is dropped for the rest of the run and said so
+once, and the words it would have answered are left blank and reported —
+`C0108: no transcription for goosebumps` — rather than written down as words
+nobody has. Only a dictionary that answered "no such word" settles a word that
+way. The build succeeds and the card is made either way.
+
+`--dictionary-url` and `--wiktionary-url` point the lookups at other services,
+and `--transcriptions` keeps the file somewhere other than beside the source.
+`import` takes all four as `build` does: it builds the same card.
+
+A word the offline dictionary knows is transposed from the notation it is given
+in — ARPAbet, stress digits and all — into IPA, with the stress mark placed
+before the syllable it falls on. Its *stress* is left as the dictionary gives
+it, which is occasionally poor on compounds (`overstocked` comes out with two
+primary stresses) and is what the file is for.
 
 ## Importing into Anki
 
@@ -302,9 +346,17 @@ Markdown, the emitted note, and the requests an import makes — never on its
 internals. They need no network, no Anki and no OCR credentials: `import` is
 driven against `tests/stub_anki.py`, a stand-in AnkiConnect holding the notes a
 test puts in it and recording what it was asked to do — which is how a replace
-is shown to leave a card's scheduling where it found it — and `preprocess --ocr`
+is shown to leave a card's scheduling where it found it — `preprocess --ocr`
 against `tests/stub_ocr.py`, a stand-in OCR service that reads back whatever a
-test says the page says.
+test says the page says, and the online dictionaries against
+`tests/stub_dictionary.py`, which answers for both of them at once and keeps
+every word it was asked about, which is how "looked up once" is shown rather
+than asserted.
+
+A run that builds a card is kept local by `run_cli` in `conftest.py`: it is
+given a transcriptions file of its own, so no test can write into the committed
+one, and it is run offline unless the test says where a dictionary answers, so
+no test reaches the network by accident.
 
 The sample lesson they run against is drawn by
 `tests/fixtures/make_sample_lesson.py`, which copies the *geometry* of a real

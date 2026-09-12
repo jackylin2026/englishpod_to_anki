@@ -76,6 +76,10 @@ _Avoid_: definitions, word list
 IPA for a single-word vocabulary term. Phrases have none.
 _Avoid_: pronunciation, phonetics
 
+**Transcription file**:
+The file the repository keeps the transcriptions the tool has resolved in, one word to a line, and where a word no dictionary has is written down as `-`. It is read before any dictionary is asked, which is what makes it the place a hand corrects a transcription: an entry in it is never overwritten by a lookup, and a word in it is never looked up again.
+_Avoid_: cache, pronunciation file
+
 **Dialogue audio**:
 A lesson's isolated dialogue recording. The lesson's other recordings are not used.
 _Avoid_: the mp3, lesson audio

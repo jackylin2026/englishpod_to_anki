@@ -18,7 +18,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import corpus
+from . import corpus, transcription
 from .anki import DEFAULT_URL, AnkiConnectError
 from .card import Note, build_note
 from .importer import (
@@ -46,8 +46,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "preprocess":
             return _preprocess(args.target, force=args.force, ocr=args.ocr, url=args.ocr_url)
         if args.command == "build":
-            return _build(args.target)
-        return _import(args.target, url=args.anki_url, policy=args.existing)
+            return _build(args.target, _transcriptions(args))
+        return _import(
+            args.target,
+            url=args.anki_url,
+            policy=args.existing,
+            transcriptions=_transcriptions(args),
+        )
     except (LessonError, AnkiConnectError, OcrError, Unanswered) as error:
         print(f"{args.command}: {error}", file=sys.stderr)
         return 1
@@ -81,6 +86,7 @@ def _parser() -> argparse.ArgumentParser:
 
     build = stages.add_parser("build", help="show the note a lesson's Markdown makes")
     build.add_argument("target", type=Path, help=ONE_LESSON_OR_MANY)
+    _transcription_flags(build)
 
     send = stages.add_parser("import", help="send a lesson's note to a running Anki")
     send.add_argument("target", type=Path, help=ONE_LESSON_OR_MANY)
@@ -95,7 +101,55 @@ def _parser() -> argparse.ArgumentParser:
         default=ASK,
         help="what to do about a lesson already in the collection (default: ask)",
     )
+    _transcription_flags(send)
     return parser
+
+
+def _transcription_flags(parser: argparse.ArgumentParser) -> None:
+    """The flags saying where a word's phonetic transcription comes from.
+
+    Both stages that build a card take them, because both build the same card:
+    what a word sounds like is not something import knows that build does not.
+    """
+    parser.add_argument(
+        "--transcriptions",
+        type=Path,
+        default=transcription.FILE,
+        help="the file the resolved transcriptions are read from and written to "
+        "(default: the one the tool ships beside its source)",
+    )
+    parser.add_argument(
+        "--dictionary-url",
+        default=transcription.DICTIONARY,
+        help=f"where the free online dictionary answers (default {transcription.DICTIONARY})",
+    )
+    parser.add_argument(
+        "--wiktionary-url",
+        default=transcription.WIKTIONARY,
+        help=f"where Wiktionary answers (default {transcription.WIKTIONARY})",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="transcribe from the offline dictionary and the file alone, asking "
+        "neither online dictionary and reaching the network not at all",
+    )
+
+
+def _transcriptions(args: argparse.Namespace) -> transcription.Transcriptions:
+    """What one run resolves words against, read before the run starts.
+
+    Read before it rather than at the first lesson that meets a word, so that a
+    file the tool cannot make sense of is said at once instead of after however
+    many lessons it takes to reach a word that is not in the offline dictionary
+    -- the same reason the OCR pass reads its credentials before its run.
+    """
+    return transcription.Transcriptions(
+        args.transcriptions,
+        dictionary=args.dictionary_url,
+        wiktionary=args.wiktionary_url,
+        offline=args.offline,
+    )
 
 
 def _preprocess(target: Path, *, force: bool, ocr: bool, url: str) -> int:
@@ -153,33 +207,39 @@ def _preprocess_one(lesson: Path, *, force: bool, reader: Reader | None) -> Prep
     return result
 
 
-def _build(target: Path) -> int:
+def _build(target: Path, transcriptions: transcription.Transcriptions) -> int:
     if not (lessons := corpus.lessons(target)):
-        _build_one(target)
+        _build_one(target, transcriptions)
+        _report_lookups(transcriptions)
         return 0
 
-    run = corpus.run(lessons, _build_one)
+    run = corpus.run(lessons, lambda lesson: _build_one(lesson, transcriptions))
+    _report_lookups(transcriptions)
     return _summarize("build", run, counts=((len(run.worked), "built"),))
 
 
-def _build_one(lesson: Path) -> Note:
-    note = build_note(lesson)
+def _build_one(lesson: Path, transcriptions: transcription.Transcriptions) -> Note:
+    note = build_note(lesson, transcribe=transcriptions.transcribe)
     print(json.dumps(note.as_json(), ensure_ascii=False))
-    _report_unmatched(note)
+    _report(note)
     return note
 
 
-def _import(target: Path, *, url: str, policy: str) -> int:
+def _import(
+    target: Path, *, url: str, policy: str, transcriptions: transcription.Transcriptions
+) -> int:
     if not (lessons := corpus.lessons(target)):
-        _import_one(target, Importer(url=url, policy=policy))
+        _import_one(target, Importer(url=url, policy=policy), transcriptions)
+        _report_lookups(transcriptions)
         return 0
 
     importer = Importer(url=url, policy=policy, many=len(lessons) > 1)
     run = corpus.run(
         lessons,
-        lambda lesson: _import_one(lesson, importer),
+        lambda lesson: _import_one(lesson, importer, transcriptions),
         halt=(AnkiConnectError, Unanswered),
     )
+    _report_lookups(transcriptions)
     return _summarize(
         "import",
         run,
@@ -191,11 +251,13 @@ def _import(target: Path, *, url: str, policy: str) -> int:
     )
 
 
-def _import_one(lesson: Path, importer: Importer) -> Done:
-    note = build_note(lesson)
+def _import_one(
+    lesson: Path, importer: Importer, transcriptions: transcription.Transcriptions
+) -> Done:
+    note = build_note(lesson, transcribe=transcriptions.transcribe)
     done = importer.send(note)
     print(f"import: {note.code}: {_what_became_of(done, note)}")
-    _report_unmatched(note)
+    _report(note)
     return done
 
 
@@ -238,12 +300,39 @@ def _summarize(
     return 0 if run.did_anything else 1
 
 
-def _report_unmatched(note: Note) -> None:
-    """Name the terms no dialogue line carried, for whoever is watching.
+def _report(note: Note) -> None:
+    """Name what the card leaves for a person, for whoever is watching.
 
-    Both stages answer with the same report: it is a fact about the lesson, not
-    about what was done with it.
+    Both stages answer with the same report: the two are facts about the lesson,
+    not about what was done with it. A word nobody transcribes is reported every
+    time the lesson is built, whether it was looked for today or written into
+    the file last week, because the card is the same either way.
     """
     if note.unmatched_terms:
         terms = ", ".join(note.unmatched_terms)
         print(f"{note.code}: no dialogue line carries {terms}", file=sys.stderr)
+    if note.untranscribed_terms:
+        words = ", ".join(note.untranscribed_terms)
+        print(f"{note.code}: no transcription for {words}", file=sys.stderr)
+
+
+def _report_lookups(transcriptions: transcription.Transcriptions) -> None:
+    """Say what became of the words a run looked up, when it is not the usual.
+
+    Two things a run cannot do anything about: a dictionary it could not reach,
+    whose words are reported rather than quietly missing, and a file it could
+    not write to, which costs the next run a lookup. The cards are made either
+    way, so both are notes rather than failures.
+    """
+    for url, error in transcriptions.unreachable.items():
+        print(
+            f"transcription: {url} could not be asked ({error}); the words it "
+            "would have answered are reported rather than transcribed",
+            file=sys.stderr,
+        )
+    if transcriptions.unwritten:
+        print(
+            f"transcription: cannot write {transcriptions.path} "
+            f"({transcriptions.unwritten}); the words this run looked up are not remembered",
+            file=sys.stderr,
+        )

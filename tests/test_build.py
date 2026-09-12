@@ -37,6 +37,16 @@ SENTENCES = (
     "compensation are new, so we book an {{c1::open mic <br>night}} in the annex instead."
 )
 
+# The phonetic transcriptions: both tables in table order, one entry per
+# single-word term and none for the phrases. Written out from a dictionary
+# rather than pasted from the tool, as everything here is. `overstocked` and
+# `immaculate` are where the offline dictionary's own stress marking is poor,
+# and are what its file is for.
+PHONETIC = (
+    "/ˈstɑˌkrum/<br>/ˌɪˈmækjulɪt/<br>/ˈɡʌvɚn/<br>/ˈoʊvɚˈstɑkt/"
+    "<br>/ˈplʌndʒ/<br>/ˈlɛdʒɚ/<br>/ˈdrɛd/<br>/ˈkreɪt/"
+)
+
 # The glossary: both tables, term, arrow, definition, in table order.
 GLOSSARY = (
     "stockroom -&gt; the room where goods are kept<br>"
@@ -72,7 +82,9 @@ def test_a_lesson_becomes_the_note_the_card_design_calls_for(
     # The two fields the design carries empty, and the ones it fills.
     assert note["fields"]["Synonym"] == ""
     assert note["fields"]["Word Family"] == ""
-    assert note["fields"]["Phonetic symbols"] == ""
+    assert note["fields"]["Phonetic symbols"] == PHONETIC
+    # Every one of the lesson's words is in the offline dictionary.
+    assert note["untranscribed_terms"] == []
 
 
 def test_the_dialogue_breaks_where_the_page_broke(markdown_lesson: Path, run_cli) -> None:

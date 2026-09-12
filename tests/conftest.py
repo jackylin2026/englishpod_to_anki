@@ -101,20 +101,42 @@ def stub():
         instance.close()
 
 
+# The stages that build a card, and so the ones that ask what a word sounds
+# like. A test's own transcriptions file sits beside the test's other files.
+CARD_STAGES = ("build", "import")
+TRANSCRIPTIONS = "transcriptions.tsv"
+
+# The flags that say where a card-building run looks for a transcription.
+DICTIONARY_FLAGS = ("--transcriptions", "--dictionary-url", "--wiktionary-url", "--offline")
+
+
 @pytest.fixture
-def run_cli():
+def transcriptions(tmp_path: Path) -> Path:
+    """The file one test's runs keep what they learned about words in."""
+    return tmp_path / TRANSCRIPTIONS
+
+
+@pytest.fixture
+def run_cli(tmp_path: Path):
     """Run the tool the way a user does: as a subprocess, through its command line.
 
     Standard input is empty unless a test has an answer to give, so that a run
     asking a question nobody meant it to ask reads an end of file rather than
     whatever the terminal running the tests happens to be holding.
+
+    A card-building run is kept to the test: it is given a transcriptions file
+    of its own, since the tool would otherwise write what it looked up into the
+    repository's own file, which belongs to the learner; and it is run offline
+    unless the test says where a dictionary answers, so that a test which is not
+    about the dictionaries cannot quietly reach one over the network. A test
+    that names either of those is taken at its word.
     """
 
     def run(
         *arguments: object, input: str = "", cwd: Path | None = None
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, "-m", "englishpod_to_anki", *(str(a) for a in arguments)],
+            [sys.executable, "-m", "englishpod_to_anki", *_kept_local(arguments, tmp_path)],
             capture_output=True,
             text=True,
             input=input,
@@ -122,4 +144,24 @@ def run_cli():
             env={**os.environ, "PYTHONPATH": str(SRC)},
         )
 
+    return run
+
+
+def _kept_local(arguments: tuple[object, ...], tmp_path: Path) -> list[str]:
+    """One run's arguments, with a card-building stage given a file and no network.
+
+    The two are decided apart: the file is always the test's, since a test has
+    no business writing the learner's, while the network is only avoided when
+    the test has said nothing about where a dictionary is.
+    """
+    run = [str(argument) for argument in arguments]
+    if not arguments or arguments[0] not in CARD_STAGES:
+        return run
+    named = {
+        str(argument).partition("=")[0] for argument in arguments if str(argument).startswith("-")
+    }
+    if "--transcriptions" not in named:
+        run += ["--transcriptions", str(tmp_path / TRANSCRIPTIONS)]
+    if not named & (set(DICTIONARY_FLAGS) - {"--transcriptions"}):
+        run.append("--offline")
     return run
