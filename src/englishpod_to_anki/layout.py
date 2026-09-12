@@ -34,6 +34,13 @@ MIN_GUTTER = 8.0
 # A vertical gap this many times the table's own row pitch begins a new term.
 TERM_GAP_FACTOR = 1.5
 
+# How near two words have to sit to be read as printed at the same column's
+# edge. A column is set once and prints at one x every time it is asked to: the
+# corpus's label columns agree to the tenth of a point across a dialogue. A page
+# read back off its own picture is a service's estimate of where a word was, and
+# a reading that disagrees with itself by more than this is read as it stands.
+COLUMN_TOLERANCE = 0.5
+
 # A gap narrower than this is not a row pitch at all: a table read back off a
 # picture has boxes a fraction of a point apart where a text layer has one line.
 NARROWER_THAN_A_ROW = 6.0
@@ -99,7 +106,7 @@ class Row:
     @property
     def text(self) -> str:
         """The row's words, in reading order."""
-        return " ".join(word.text for word in self.words)
+        return _text(self.words)
 
     @property
     def squashed(self) -> str:
@@ -338,6 +345,159 @@ def _column_of(x0: float, edges: tuple[float, ...]) -> int:
         if x0 >= edge - 0.5:
             index = position
     return index
+
+
+# One row of a dialogue as the label printed at its head and the body beside it.
+Labelled = tuple[str, str]
+
+
+def labelled_rows(rows: Sequence[Row]) -> list[Labelled]:
+    """A dialogue's rows, each as the label printed at its head and the body beside it.
+
+    A label the column the corpus prints labels in is too narrow for takes two
+    rows: the label's first half ends the row and the body begins after it, and
+    the label's second half opens the next row before the body carries on. Read
+    as the rows stand, the halves fall on either side of the body's first words,
+    and a word the typesetter broke at the row's end is healed against the wrong
+    fragment -- `Older gentle-` and `man:` come back as two words that are not
+    the label either of them is half of.
+
+    Only the rows a two-row label is printed over are read any differently. A
+    label the column fits on one row is left where it is, and so is every row
+    that carries no label at all: those answer with the row's own text and no
+    label, which is what the caller reads a row as until a label says otherwise.
+    """
+    body_at = _body_column(rows)
+    if body_at is None:
+        return [("", row.text) for row in rows]
+
+    labelled: list[Labelled] = []
+    index = 0
+    while index < len(rows):
+        split = _two_row_label(rows, index, body_at)
+        if split is None:
+            labelled.append(("", rows[index].text))
+            index += 1
+            continue
+        label, first, second = split
+        labelled.append((label, first))
+        labelled.append(("", second))
+        index += 2
+    return labelled
+
+
+def _two_row_label(rows: Sequence[Row], index: int, body_at: float) -> tuple[str, str, str] | None:
+    """The label printed over two rows beginning at `index`, and each row's body.
+
+    The label's second half is what says a label is printed here: it is the word
+    carrying the colon the label ends at. What is above it is read off that row's
+    own words -- the ones printed at the label's column, which is the column the
+    row below prints its half of the label at -- and the two halves are a label's
+    two halves rather than two rows' openings only if they join into one: a colon
+    after one or two words, healable at the break the way any broken word is.
+
+    Two rows are all this reads, and a label printed over three -- lesson 0119's
+    `Scruffy puffy poo:` is, with the body beginning beside its first word -- is
+    left as the rows stand: a row with a half of a label above it is not the row
+    a label begins on, so no pair of these two is the whole of that label.
+    """
+    if index + 1 >= len(rows):
+        return None
+    first, second = rows[index], rows[index + 1]
+    tail = _to_the_colon(second.words)
+    if not tail:
+        return None
+    # The row above carries the label's first half only if it carries a half at
+    # all: words of its own at the label's column, and none of them a label's
+    # end -- a half with a colon in it is a label already, and the row below is
+    # a new speaker rather than the rest of that one.
+    half = _left_of(first.words, body_at)
+    if not half or any(":" in word.text for word in half):
+        return None
+    # The row above carries nothing more of this label, or carries a label of
+    # its own: a row whose words sit at this label's column but do not end at a
+    # colon is a half of a label the column broke over three rows, and no pair
+    # of rows here is the whole of it.
+    if index:
+        above = _at_column(rows[index - 1].words, half[0].x0)
+        if above and not any(":" in word.text for word in above):
+            return None
+    # The two halves are printed at the one column, the label's: a body word
+    # beginning where the label's second half does is the row's own body.
+    if abs(half[0].x0 - tail[0].x0) > COLUMN_TOLERANCE:
+        return None
+    # A label's first half ends the row the body of what the speaker says begins
+    # on, and a dialogue printed in two columns indents every body to the one
+    # place: the words after the half are the body's, and they begin where the
+    # body beside the label does. A row whose next word stands somewhere else --
+    # or whose half is the whole of the row -- is a row of body rather than the
+    # row a label begins on, and is left to the body it belongs to.
+    rests = first.words[len(half) :]
+    if not rests or abs(rests[0].x0 - body_at) > COLUMN_TOLERANCE:
+        return None
+    label = " ".join(heal_wrapped_words([_text(half), _text(tail)]))
+    if len(label.split()) not in (1, 2) or not label.endswith(":"):
+        return None
+    return label, _text(rests), _text(second.words[len(tail) :])
+
+
+def _to_the_colon(words: Sequence[Word]) -> tuple[Word, ...]:
+    """A row's leading words up to and including the first one carrying a colon.
+
+    A label ends at its colon, so this is what a row carries of one: the whole
+    label where the column fitted it on the row, and the label's last half where
+    it did not. A row carrying no colon carries no part of a label.
+    """
+    for index, word in enumerate(words):
+        if ":" in word.text:
+            return tuple(words[: index + 1])
+    return ()
+
+
+def _left_of(words: Sequence[Word], column: float) -> tuple[Word, ...]:
+    """A row's leading words printed left of the column the body begins at."""
+    end = 0
+    while end < len(words) and words[end].x0 < column - COLUMN_TOLERANCE:
+        end += 1
+    return tuple(words[:end])
+
+
+def _at_column(words: Sequence[Word], column: float) -> tuple[Word, ...]:
+    """A row's leading words printed at one column's edge."""
+    end = 0
+    while end < len(words) and abs(words[end].x0 - column) <= COLUMN_TOLERANCE:
+        end += 1
+    return tuple(words[:end])
+
+
+def _body_column(rows: Sequence[Row]) -> float | None:
+    """The x a dialogue's bodies begin at, where they all begin at one.
+
+    A label ends at its colon, so the body beside it begins at the word after
+    it, and a label the column broke over two rows says as much from the row it
+    ends on as any label does. Every row of a dialogue printed in two columns is
+    a label or a body of one, so its bodies all begin at the one x: measured on
+    the corpus, every dialogue of it that prints a body beside a label prints
+    all of them at a single x.
+
+    A dialogue that begins its bodies wherever its labels end has no second
+    column at all, and answers with nothing: the print transcript prints every
+    body against its own label, and no label of it is printed over two rows, so
+    nothing is read differently there.
+    """
+    begins = [
+        row.words[1].x0
+        for row in rows
+        if len(row.words) > 1 and row.words[0].text.endswith(":")
+    ]
+    if not begins or any(abs(x - begins[0]) > COLUMN_TOLERANCE for x in begins):
+        return None
+    return begins[0]
+
+
+def _text(words: Sequence[Word]) -> str:
+    """A run of words, in reading order."""
+    return " ".join(word.text for word in words)
 
 
 def term_rows(rows: list[Row]) -> list[list[Row]]:

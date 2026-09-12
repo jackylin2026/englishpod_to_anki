@@ -53,8 +53,12 @@ The print transcript's version of one lesson's dialogue, written beside the less
 _Avoid_: transcription file, slice, dialogue file
 
 **Dialogue**:
-A lesson's scripted conversation. Each turn opens with a speaker label — a colon after one or two capitalised words, so `A:`, `C:`, `Steven:`, `Team A:`. There are no timestamps and no line numbers.
+A lesson's scripted conversation. Each turn opens with a speaker label — a colon after one or two words, so `A:`, `C:`, `Steven:`, `Team A:`. A name may be printed with its second word lowercase, as lesson 0117's `Airline worker:` is. There are no timestamps and no line numbers.
 _Avoid_: script, transcript, conversation
+
+**Body**:
+What a speaker says in a turn, as against the speaker label that opens it — a printed row carries the label's words, if it carries any, and then the body's. A label too long for the column the labels are set in is printed over two rows, and the body begins on the first of them.
+_Avoid_: text, speech
 
 **Key Vocabulary**:
 A lesson's primary vocabulary table. The only table that yields cloze blanks.

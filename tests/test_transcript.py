@@ -41,6 +41,8 @@ A: You’ve made your point.
 B: I have two weeks’ vacation left before term starts.
 
 A: We only hire at entry-level for this role.
+Airline staff: I am sorry sir, we cannot wait any longer. you must board the plane.
+Sun- day: The auditors arrive on Tuesday, and the stockroom must be immaculate before they get here.
 """
 
 

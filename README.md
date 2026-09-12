@@ -185,6 +185,15 @@ without a usable CA bundle. Point it at the system's own:
 SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt englishpod-to-anki preprocess /path --ocr
 ```
 
+A speaker label is printed beside the first line of what that speaker says, and
+a label too long for the column the labels are set in takes two rows: the
+label's first half ends the row the body begins on, and the second half opens
+the next row before the body carries on. The halves are one label — joined
+across the break the way a word broken there is, so `Older gentle-` / `man:` is
+`Older gentleman:` — and the body is read from the row the label begins on.
+Lesson 0117's `Airline worker:` is printed this way, down to a lowercase second
+word, so what says the halves are one label is the column they are printed in.
+
 Words the typesetter broke over a line are put back together, and the
 distinction between those and a hyphen the author typed is settled by the
 offline dictionary (`cmudict`): `immac-` / `ulate` becomes `immaculate`, while
@@ -210,7 +219,7 @@ dialogue reads differently is named on stderr:
 
 ```
 C0108: the print transcript's dialogue differs from the lesson's; see /path/to/corpus/英语博客100-150/0108/englishpod_D0108.transcript.md
-preprocess: 365 lessons: 365 already had a Markdown file, 329 transcript files written, 38 of 329 disagreed with the print transcript, 0 skipped
+preprocess: 365 lessons: 365 already had a Markdown file, 329 transcript files written, 32 of 329 disagreed with the print transcript, 0 skipped
 ```
 
 It is a warning and nothing more. The lesson's Markdown, the file beside it and

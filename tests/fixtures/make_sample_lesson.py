@@ -17,6 +17,9 @@ that the tests exercise the parsing the real files demand:
 - the page footer that appears on every page of the corpus
 - a speaker label wide enough to run into the first word the speaker says, so
   the two overlap on the page and ordering by position alone interleaves them
+- a speaker label too long for the column, printed over two rows with the body
+  begun after its first half -- lesson 0117's `Airline worker:` is printed that
+  way, and lesson 0319's label is broken at a hyphen inside it
 - a contraction printed as two runs of glyphs a shade further apart than a space
 - a possessive ending in an apostrophe straight in front of a broken word
 - a hyphen the author typed landing at a line break (`entry-level`), next to one
@@ -166,6 +169,19 @@ DIALOGUE = [
     # hyphen here is the author's, so `entry-level` keeps it.
     (540.0, [(LABEL_X, "A:"), (BODY_X, "We only hire at entry-")]),
     (560.0, [(BODY_X, "level for this role.")]),
+    # A label the column is too narrow for prints over two rows: the first half
+    # ends the row the body begins on, and the second half opens the next before
+    # the body carries on. Lesson 0117's `Airline worker:` is printed this way,
+    # down to the lowercase second word -- which is why the column, not the
+    # shape of the words, is what says this is one label.
+    (600.0, [(LABEL_X, "Airline"), (BODY_X, "I am sorry sir, we cannot wait any long-")]),
+    (620.0, [(LABEL_X, "staff:"), (BODY_X, "er. you must board the plane.")]),
+    # And a label broken at a hyphen inside it, as lesson 0319's `Older gentle-`
+    # / `man:` is: the halves are one word, healed across the row the way any
+    # word broken at the end of a row is.
+    (660.0, [(LABEL_X, "Sun-"), (BODY_X, "The auditors arrive on Tues-")]),
+    (680.0, [(LABEL_X, "day:"), (BODY_X, "day, and the stockroom must be immac-")]),
+    (700.0, [(BODY_X, "ulate before they get here.")]),
 ]
 
 KEY_VOCABULARY = [
@@ -219,17 +235,20 @@ def build(path: Path) -> None:
     pdf.drawString(405.0, PAGE_HEIGHT - 95, "(C0108)")
     for top, segments in DIALOGUE:
         draw_line(pdf, top, segments)
-    # The Key Vocabulary table begins on the dialogue's last page and runs on.
-    pdf.setFont(FONT, TITLE_SIZE)
-    pdf.drawString(TITLE_X, PAGE_HEIGHT - 600, "Key Vocabulary")
-    draw_entry(pdf, 640.0, KEY_VOCABULARY[0])
-    draw_entry(pdf, 740.0, KEY_VOCABULARY[1])
     draw_footer(pdf)
     pdf.showPage()
 
-    draw_entry(pdf, 95.0, KEY_VOCABULARY[2])
-    draw_entry(pdf, 175.0, KEY_VOCABULARY[3])
-    draw_entry(pdf, 275.0, KEY_VOCABULARY[4])
+    # The Key Vocabulary table runs on to the page after the one it starts on.
+    pdf.setFont(FONT, TITLE_SIZE)
+    pdf.drawString(TITLE_X, PAGE_HEIGHT - 60, "Key Vocabulary")
+    draw_entry(pdf, 100.0, KEY_VOCABULARY[0])
+    draw_entry(pdf, 180.0, KEY_VOCABULARY[1])
+    draw_entry(pdf, 260.0, KEY_VOCABULARY[2])
+    draw_entry(pdf, 360.0, KEY_VOCABULARY[3])
+    draw_footer(pdf)
+    pdf.showPage()
+
+    draw_entry(pdf, 95.0, KEY_VOCABULARY[4])
     draw_footer(pdf)
     pdf.showPage()
 
@@ -475,14 +494,27 @@ def build_transcript(path: Path, lessons: list[Printed]) -> None:
 
 
 def as_printed(dialogue: list[tuple[float, list[tuple[float, str]]]]) -> list[tuple[str, list[str]]]:
-    """The sample lesson's dialogue as a printing that wraps it its own way holds it."""
+    """The sample lesson's dialogue as a printing that wraps it its own way holds it.
+
+    A label the lesson's column breaks over two rows is printed whole by a
+    printing with room for it: the halves are the text drawn at the label's x,
+    each row of the lesson contributing its own half, and the turn the label
+    names keeps the body of every row it was printed beside.
+    """
     turns: list[tuple[str, list[str]]] = []
+    label = ""
     for _top, segments in dialogue:
-        parts = [text for _x, text in segments]
-        if parts[0].endswith(":"):
-            turns.append((parts[0][:-1], [" ".join(parts[1:])]))
-        else:
-            turns[-1][1].append(" ".join(parts))
+        half = " ".join(text for x, text in segments if x == LABEL_X)
+        body = " ".join(text for x, text in segments if x != LABEL_X)
+        if half:
+            if not label:
+                turns.append(("", []))
+            label = f"{label} {half}" if label else half
+            if label.endswith(":"):
+                turns[-1] = (label[:-1], turns[-1][1])
+                label = ""
+        if body:
+            turns[-1][1].append(body)
     return turns
 
 

@@ -18,6 +18,7 @@ from .layout import (
     cell,
     columns,
     heal_wrapped_words,
+    labelled_rows,
     read_rows,
     term_rows,
 )
@@ -45,8 +46,12 @@ CODE = re.compile(r"\(([A-Za-z]\d{4})\)")
 TITLE_LINE_HEIGHT = 30.0
 
 # A speaker label: one or two capitalised words at the start of a line, always
-# followed by a colon. Most lessons use `A:` and `B:`, but some name their speakers.
-SPEAKER = re.compile(r"^(?:[A-Z][A-Za-z.']*|[A-Z])(?: [A-Z][A-Za-z.']*)?:")
+# followed by a colon. Most lessons use `A:` and `B:`, but some name their
+# speakers. A name may be hyphenated: the print transcript reflows a lesson's
+# text its own way and prints lesson 0328's label as `Mr. Camp-bell:`, a word
+# the lesson's own column broke, and the colon is what says where the label ends
+# either way.
+SPEAKER = re.compile(r"^(?:[A-Z][A-Za-z.'-]*|[A-Z])(?: [A-Z][A-Za-z.'-]*)?:")
 
 KEY_HEADING = "KeyVocabulary"
 SUPPLEMENTARY_HEADING = "SupplementaryVocabulary"
@@ -356,6 +361,12 @@ def dialogue_in(rows: list[Row]) -> tuple[str | None, tuple[Turn, ...]]:
     the page broke it into, so that the card built from it breaks where the page
     broke. A lesson can carry a code without carrying any dialogue, so the code
     is read from the whole title block rather than only up to the first speaker.
+
+    A label the lesson's column broke over two rows is one label here, and the
+    turn is the turn of the speaker it names: the row the label begins on
+    carries the first line of what that speaker says, and the row the label ends
+    on carries the next -- as though the label had been printed on one row, the
+    way the print transcript prints it.
     """
     found = CODE.search(" ".join(row.text for row in rows))
     # A level letter is capitalised in the corpus, and read off a picture it
@@ -364,16 +375,14 @@ def dialogue_in(rows: list[Row]) -> tuple[str | None, tuple[Turn, ...]]:
     # read by OCR and one read out of a text layer are the same lesson.
     code = found.group(1).upper() if found else None
 
-    first_turn = next((index for index, row in enumerate(rows) if SPEAKER.match(row.text)), None)
-    if first_turn is None:
-        return code, ()
-
-    turns: list[list[str]] = [[rows[first_turn].text]]
-    for row in rows[first_turn + 1 :]:
-        if SPEAKER.match(row.text):
-            turns.append([row.text])
-        else:
-            turns[-1].append(row.text)
+    turns: list[list[str]] = []
+    for label, body in labelled_rows(rows):
+        if label:
+            turns.append([f"{label} {body}".strip()])
+        elif SPEAKER.match(body):
+            turns.append([body])
+        elif turns and body:
+            turns[-1].append(body)
     return code, tuple(tuple(heal_wrapped_words(turn)) for turn in turns)
 
 

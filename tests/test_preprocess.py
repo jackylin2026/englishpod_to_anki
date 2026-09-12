@@ -37,7 +37,11 @@ A: You’ve made your point.
 
 B: I have two weeks’ vacation left before term starts.
 
-A: We only hire at entry-level for this role."""
+A: We only hire at entry-level for this role.
+
+Airline staff: I am sorry sir, we cannot wait any longer. you must board the plane.
+
+Sunday: The auditors arrive on Tuesday, and the stockroom must be immaculate before they get here."""
 
 EXPECTED_KEY_VOCABULARY = [
     ("stockroom", "common noun, singular", "the room where goods are kept"),
@@ -136,6 +140,35 @@ def test_a_wide_speaker_label_keeps_the_first_word_it_overlaps(lesson: Path, run
     dialogue = section(preprocessed(lesson, run_cli), "Dialogue")
 
     assert "Veronica: I have told you twice already." in dialogue
+
+
+def test_a_label_printed_over_two_rows_is_one_label(lesson: Path, run_cli) -> None:
+    """`Airline` and `staff:` are one label, and the body begins after the first half.
+
+    A label too long for the column it is printed in takes two rows, one word at
+    the head of each, as lesson 0117's `Airline worker:` does. Its second half
+    opens with a lowercase word, so the column, and not the shape of the words,
+    is what says the two halves are one label -- and the body broken at the
+    first row's end heals across the second, as any broken word does.
+    """
+    dialogue = section(preprocessed(lesson, run_cli), "Dialogue")
+
+    assert (
+        "\nAirline staff: I am sorry sir, we cannot wait any longer. "
+        "you must board the plane." in dialogue
+    )
+
+
+def test_a_label_printed_over_two_rows_heals_the_word_it_broke(
+    lesson: Path, run_cli
+) -> None:
+    """`Sun-` and `day:` are `Sunday:`, as lesson 0319's `Older gentle-` / `man:` is."""
+    dialogue = section(preprocessed(lesson, run_cli), "Dialogue")
+
+    assert (
+        "\nSunday: The auditors arrive on Tuesday, and the stockroom "
+        "must be immaculate before they get here." in dialogue
+    )
 
 
 def test_a_contraction_printed_as_two_runs_is_rejoined(lesson: Path, run_cli) -> None:
