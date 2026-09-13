@@ -510,6 +510,13 @@ def term_rows(rows: list[Row]) -> list[list[Row]]:
     table's pitch made every row a term of its own, filling the tables of a
     third of the corpus's scans with empty-term rows. A page break always begins
     a new term.
+
+    Where nothing is set wider than anything else, there is no narrower gap to
+    take a pitch from: the narrowest is the gap between terms rather than a
+    term's own leading, and reading it as one puts the whole table into a single
+    term. A page prints a term's lines closer than the gap before its next term
+    -- that difference is what this reads, and a table without it is set one row
+    to a term.
     """
     if not rows:
         return []
@@ -519,6 +526,8 @@ def term_rows(rows: list[Row]) -> list[list[Row]]:
         if current.page == following.page and following.top > current.top
     ]
     pitches = [pitch for pitch in pitches if pitch >= NARROWER_THAN_A_ROW] or pitches
+    if pitches and max(pitches) < min(pitches) * TERM_GAP_FACTOR:
+        pitches = []
     threshold = min(pitches) * TERM_GAP_FACTOR if pitches else None
 
     groups: list[list[Row]] = [[rows[0]]]

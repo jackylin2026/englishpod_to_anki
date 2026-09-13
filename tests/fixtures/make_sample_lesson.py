@@ -18,6 +18,10 @@ that the tests exercise the parsing the real files demand:
   whole of it, so the page leaves an empty column between the term and the
   definition -- lesson 0240's is printed that way, and a reading that counts
   a table's own gutters finds two columns where the page has three
+- a Supplementary Vocabulary table set one row to a term at an even pitch, so
+  that no row sits closer to the one above than to any other -- lesson 0096's
+  is printed that way, and a reading that takes the narrowest gap for a term's
+  own leading puts the whole table into one term
 - the page footer that appears on every page of the corpus
 - a speaker label wide enough to run into the first word the speaker says, so
   the two overlap on the page and ordering by position alone interleaves them
@@ -309,9 +313,15 @@ SAMPLE_LESSONS = [
             Entry([Line(["descale"], ["verb"], ["to take the mineral"]),
                    Line([], [], ["deposit off"])]),
         ],
+        # Set one row to a term at an even pitch, as lesson 0096's Supplementary
+        # Vocabulary is: no row sits closer to the one above it than to any
+        # other, so there is no leading to tell a term's own lines by. This is
+        # the batch's last lesson, so nothing is drawn below it to be shifted by
+        # the two entries it carries and lesson 0096's does not.
         supplementary_vocabulary=[
-            Entry([Line(["boil"], ["verb"], ["to heat a liquid until"]),
-                   Line([], [], ["it bubbles"])]),
+            Entry([Line(["boil"], ["verb"], ["to heat a liquid"])]),
+            Entry([Line(["steam"], ["noun"], ["the vapour of water"])]),
+            Entry([Line(["spout"], ["noun"], ["where the water pours"])]),
         ],
     ),
 ]

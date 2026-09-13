@@ -305,6 +305,32 @@ def test_a_lesson_holding_an_introduction_sheet_is_read_from_the_pdf_beside_it(
     assert "| saddle | common noun | the seat of a bicycle |" in markdown
 
 
+def test_a_table_set_one_row_to_a_term_reads_every_row_as_a_term(
+    corpus: Path, run_cli
+) -> None:
+    """Lesson 0096's Supplementary Vocabulary is set that way: evenly, one row to a term.
+
+    A term's own lines are told from the gap before the next term because they
+    sit closer together than it does. Where every row sits at one pitch there is
+    no such gap, and reading the narrowest one as a term's leading puts the
+    whole table into a single term whose cells hold every term's words at once.
+    """
+    lesson = corpus / BATCH / "0111"
+    (lesson / "englishpod_F0111.md").unlink()
+
+    result = run_cli("preprocess", lesson)
+
+    assert result.returncode == 0, result.stderr
+    markdown = (lesson / "englishpod_C0111.md").read_text(encoding="utf-8")
+    _, rows = table(section(markdown, "Supplementary Vocabulary"))
+
+    assert rows == [
+        ("boil", "verb", "to heat a liquid"),
+        ("steam", "noun", "the vapour of water"),
+        ("spout", "noun", "where the water pours"),
+    ]
+
+
 def test_a_title_printed_over_two_lines_does_not_leak_into_the_lesson_before(
     corpus: Path, run_cli
 ) -> None:
