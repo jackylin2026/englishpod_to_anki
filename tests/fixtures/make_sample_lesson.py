@@ -14,6 +14,10 @@ that the tests exercise the parsing the real files demand:
   wider than a space but narrower than the gap between two columns -- a parser
   that trusts every wide gap finds four columns here instead of three
 - the Key Vocabulary table spanning a page break
+- a Supplementary Vocabulary table printed with no part of speech down the
+  whole of it, so the page leaves an empty column between the term and the
+  definition -- lesson 0240's is printed that way, and a reading that counts
+  a table's own gutters finds two columns where the page has three
 - the page footer that appears on every page of the corpus
 - a speaker label wide enough to run into the first word the speaker says, so
   the two overlap on the page and ordering by position alone interleaves them
@@ -209,19 +213,19 @@ KEY_VOCABULARY = [
     ]),
 ]
 
+# Lesson 0240 prints its Supplementary Vocabulary with no part of speech down
+# the whole table: its terms and definitions are set with an empty column
+# between them, which leaves one gutter where a filled table has two.
 SUPPLEMENTARY_VOCABULARY = [
     Entry([
-        Line(["ledger"], ["common"], ["a book of accounts"]),
-        Line([], ["noun,"]),
-        Line([], ["singular"]),
+        Line(["ledger"], [], ["a book of accounts"]),
     ]),
     Entry([
-        Line(["dread"], ["verb"], ["to fear something"]),
+        Line(["dread"], [], ["to fear something"]),
     ]),
     Entry([
-        Line(["crate"], ["common"], ["a wooden box for"]),
-        Line([], ["noun,"], ["moving goods"]),
-        Line([], ["singular"]),
+        Line(["crate"], [], ["a wooden box for"]),
+        Line([], [], ["moving goods"]),
     ]),
 ]
 

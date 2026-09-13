@@ -51,10 +51,13 @@ EXPECTED_KEY_VOCABULARY = [
     ("pallet", "common noun, singular", "a platform for stacking goods"),
 ]
 
+# The sample lesson's Supplementary Vocabulary is printed with no part of speech
+# down the whole table, as lesson 0240's is: the column is empty, so nothing
+# stands in it and the definition is the only other cell there is.
 EXPECTED_SUPPLEMENTARY_VOCABULARY = [
-    ("ledger", "common noun, singular", "a book of accounts"),
-    ("dread", "verb", "to fear something"),
-    ("crate", "common noun, singular", "a wooden box for moving goods"),
+    ("ledger", "", "a book of accounts"),
+    ("dread", "", "to fear something"),
+    ("crate", "", "a wooden box for moving goods"),
 ]
 
 
@@ -117,6 +120,26 @@ def test_key_and_supplementary_vocabulary_are_separate_tables(lesson: Path, run_
     assert supplementary_header == ("Term", "Part of speech", "Definition")
     assert key_rows == EXPECTED_KEY_VOCABULARY
     assert supplementary_rows == EXPECTED_SUPPLEMENTARY_VOCABULARY
+
+
+def test_a_table_printed_without_a_part_of_speech_keeps_its_definitions(
+    lesson: Path, run_cli
+) -> None:
+    """A column nothing is ever printed in leaves no gutter to find it by.
+
+    The sample lesson's Supplementary Vocabulary is printed that way, as lesson
+    0240's is. Read on its own it comes out two columns wide, and every cell
+    past the term reads one column too far left: the definition lands in the
+    part of speech and the definition column is left empty. Both tables of a
+    lesson are printed on one grid, so the column comes back from the other.
+    """
+    markdown = preprocessed(lesson, run_cli)
+
+    _, rows = table(section(markdown, "Supplementary Vocabulary"))
+
+    assert rows == EXPECTED_SUPPLEMENTARY_VOCABULARY
+    # Not one of them has its definition in the part of speech, or none at all.
+    assert all(not part_of_speech and definition for _, part_of_speech, definition in rows)
 
 
 def test_a_term_split_across_physical_lines_is_reassembled(lesson: Path, run_cli) -> None:

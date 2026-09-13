@@ -56,8 +56,10 @@ SPEAKER = re.compile(r"^(?:[A-Z][A-Za-z.'-]*|[A-Z])(?: [A-Z][A-Za-z.'-]*)?:")
 KEY_HEADING = "KeyVocabulary"
 SUPPLEMENTARY_HEADING = "SupplementaryVocabulary"
 
-# A vocabulary table's three columns, left to right.
+# A vocabulary table's three columns, left to right, and how many there are. A
+# table read as fewer than `TABLE_COLUMNS` has lost one of them.
 TERM_COLUMN, PART_OF_SPEECH_COLUMN, DEFINITION_COLUMN = 0, 1, 2
+TABLE_COLUMNS = DEFINITION_COLUMN + 1
 
 
 # What the OCR pass is to this stage: something that reads a lesson's rows back
@@ -226,12 +228,47 @@ def lesson_in(rows: list[Row]) -> Lesson | None:
     code, dialogue = dialogue_in(rows[:first_table_at] if first_table_at is not None else rows)
     if code is None:
         return None
+    key_vocabulary, supplementary_vocabulary = _two_tables(
+        _section(rows, key_at, supplementary_at),
+        _section(rows, supplementary_at, None),
+    )
     return Lesson(
         code=code,
         dialogue=dialogue,
-        key_vocabulary=_table(_section(rows, key_at, supplementary_at)),
-        supplementary_vocabulary=_table(_section(rows, supplementary_at, None)),
+        key_vocabulary=key_vocabulary,
+        supplementary_vocabulary=supplementary_vocabulary,
     )
+
+
+def _two_tables(
+    one: list[Row], other: list[Row]
+) -> tuple[tuple[VocabularyTerm, ...], tuple[VocabularyTerm, ...]]:
+    """A lesson's two vocabulary tables, each read in the columns it is printed in.
+
+    A table's columns are read off the empty gutters running its whole height,
+    which is enough while every column is filled somewhere. One that is not --
+    a page printing no part of speech down the whole of its Supplementary
+    Vocabulary, as lesson 0240's does, or a reading that takes a term and its
+    part of speech for one cell -- has one gutter where it should have two, and
+    every cell past the first then reads one column too far left: the definition
+    lands in the part of speech, and the definition column comes out empty.
+
+    Both tables are printed on one grid, so a table that comes up short of a
+    column is read in the columns the other table shows. A table already read in
+    all three is left exactly as it was.
+    """
+    key_edges, supplementary_edges = columns(one), columns(other)
+    return (
+        _table(one, _borrowed(key_edges, supplementary_edges)),
+        _table(other, _borrowed(supplementary_edges, key_edges)),
+    )
+
+
+def _borrowed(edges: tuple[float, ...], beside: tuple[float, ...]) -> tuple[float, ...]:
+    """A table's columns, or the other table's when this one is short of a column."""
+    if len(edges) == TABLE_COLUMNS:
+        return edges
+    return beside if len(beside) == TABLE_COLUMNS else edges
 
 
 def _lesson_beside(lesson_dir: Path, pdf: Path) -> list[Row]:
@@ -386,10 +423,14 @@ def dialogue_in(rows: list[Row]) -> tuple[str | None, tuple[Turn, ...]]:
     return code, tuple(tuple(heal_wrapped_words(turn)) for turn in turns)
 
 
-def _table(rows: list[Row]) -> tuple[VocabularyTerm, ...]:
+def _table(rows: list[Row], edges: tuple[float, ...]) -> tuple[VocabularyTerm, ...]:
+    """One vocabulary table's terms, its cells read in the columns it prints in.
+
+    The columns are the ones `_two_tables` settled for this table, which are its
+    own unless it came up short of one.
+    """
     if not rows:
         return ()
-    edges = columns(rows)
     return tuple(
         VocabularyTerm(
             term=cell(group, edges, TERM_COLUMN),
