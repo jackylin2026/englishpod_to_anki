@@ -52,10 +52,9 @@ SENTENCES = "Sentences"
 TTS = "TTS"
 FIELDS = (SENTENCES, "Phonetic symbols", "Words", "Synonym", "Word Family", TTS)
 
-# The dialogue breaks where the page broke: a paragraph break is a newline
-# before the break, an intra-paragraph wrap a space before it.
+# The break a speaker's turn is preceded by: a newline before it, so that one
+# turn to a line is a blank line on the card.
 PARAGRAPH = "\n<br>"
-WRAP = " <br>"
 
 FRONT_TEMPLATE = '<div style="text-align: left;">{{cloze:Sentences}}</div>'
 # The answer side, in the design's order: the filled dialogue, the phonetic
@@ -348,18 +347,20 @@ class Token:
 def _tokens(dialogue: Dialogue) -> list[Token]:
     """The dialogue's words in order, each knowing the break it follows.
 
-    The physical lines are kept, because the card breaks where the page broke:
-    a wrap inside a turn follows a space, a new turn follows a newline.
+    A speaker's turn is one line on the card however many lines the page printed
+    it over -- a turn runs on, and the sentence it was set in goes on with it.
+    What breaks a line is a speaker changing, and that break is a blank one.
     """
     tokens: list[Token] = []
     for number, turn in enumerate(dialogue):
         for line, text in enumerate(turn):
             for position, word in enumerate(text.split()):
-                separator = " "
                 if not tokens:
                     separator = ""
-                elif position == 0:
-                    separator = PARAGRAPH if line == 0 else WRAP
+                elif line == 0 and position == 0:
+                    separator = PARAGRAPH
+                else:
+                    separator = " "
                 tokens.append(Token(text=word, separator=separator, turn=number))
     return tokens
 

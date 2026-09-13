@@ -20,21 +20,21 @@ from pathlib import Path
 
 FIELDS = ["Sentences", "Phonetic symbols", "Words", "Synonym", "Word Family", "TTS"]
 
-# The dialogue as the card's field carries it: a paragraph break is a newline
-# before the break, an intra-paragraph wrap is a space before it, and every
+# The dialogue as the card's field carries it: a turn is one line however many
+# lines the page printed it over, a turn is preceded by a blank line, and every
 # occurrence of a Key Vocabulary term is a blank.
 SENTENCES = (
-    "A: Morning, Ed. The auditors arrive on Monday, and I <br>"
-    "want the {{c1::stockroom}} {{c1::immaculate}} before they get here. <br>"
+    "A: Morning, Ed. The auditors arrive on Monday, and I "
+    "want the {{c1::stockroom}} {{c1::immaculate}} before they get here. "
     "Sales have {{c1::plunged}} since the spring audit.\n<br>"
-    "B: I have been dreading this. Half the pallets are <br>"
+    "B: I have been dreading this. Half the pallets are "
     "still unlabelled and the shutter is jammed.\n<br>"
-    "A: Then get the labels printed today. Move the <br>"
+    "A: Then get the labels printed today. Move the "
     "overflow into the {{c1::stockroom}} annex before the audit.\n<br>"
-    "B: And the damaged crates? We cannot simply {{c1::write <br>off}} the damaged stock "
+    "B: And the damaged crates? We cannot simply {{c1::write off}} the damaged stock "
     "without a signature.\n<br>"
-    "A: We are {{c1::overstocked}} and the regulations {{c1::governing}} <br>"
-    "compensation are new, so we book an {{c1::open mic <br>night}} in the annex instead."
+    "A: We are {{c1::overstocked}} and the regulations {{c1::governing}} "
+    "compensation are new, so we book an {{c1::open mic night}} in the annex instead."
 )
 
 # The phonetic transcriptions: both tables in table order, one entry per
@@ -96,11 +96,15 @@ def test_the_dialogue_breaks_where_the_page_broke(markdown_lesson: Path, run_cli
 def test_a_term_the_page_wrapped_is_blanked_across_the_wrap(
     markdown_lesson: Path, run_cli
 ) -> None:
-    """`write off` ends one physical line and `open mic night` spans two."""
+    """`write off` ends one physical line and `open mic night` spans two.
+
+    What the page broke is not a break on the card -- a turn is one line -- so
+    the blank carries the term's words with nothing between them but a space.
+    """
     sentences = built(markdown_lesson, run_cli)["fields"]["Sentences"]
 
-    assert "{{c1::write <br>off}}" in sentences
-    assert "{{c1::open mic <br>night}}" in sentences
+    assert "{{c1::write off}}" in sentences
+    assert "{{c1::open mic night}}" in sentences
 
 
 def test_an_inflected_term_is_blanked(markdown_lesson: Path, run_cli) -> None:

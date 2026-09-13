@@ -255,9 +255,9 @@ and no lesson, one JSON document per line for a run over the corpus. It does
 write what it learns about words: see [Phonetic
 transcriptions](#phonetic-transcriptions) below. The
 `Sentences` field holds the dialogue with every Key Vocabulary term it carries
-blanked out; `Words` holds both vocabulary tables as `term -> definition`. The
-dialogue breaks where the page broke: an intra-paragraph wrap after a space, a
-paragraph break after a newline.
+blanked out; `Words` holds both vocabulary tables as `term -> definition`. A
+speaker's turn is one line, however many lines the page printed it over: what
+breaks the line is a speaker changing, and that break is a blank one.
 
 A term matches across the page's line wrapping, across simple inflections
 (`plunge` finds `plunged`, `govern` finds `governing`) and with bracketed
