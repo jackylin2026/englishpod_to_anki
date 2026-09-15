@@ -20,13 +20,21 @@ import subprocess
 from os.path import relpath
 from pathlib import Path
 
-from conftest import BATCH
+from conftest import BATCH, built_dir
 from stub_anki import StubAnki, existing
+
+# What a build says when it has written a lesson's note, before the path.
+WROTE = "build: wrote "
 
 
 def notes(result: subprocess.CompletedProcess[str]) -> list[dict]:
-    """The notes a build run emitted, one JSON document per line."""
-    return [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    """The notes a build run wrote, in the order it said it wrote them."""
+    written = [
+        Path(line.removeprefix(WROTE))
+        for line in result.stdout.splitlines()
+        if line.startswith(WROTE)
+    ]
+    return [json.loads(path.read_text(encoding="utf-8")) for path in written]
 
 
 def lesson_codes(result: subprocess.CompletedProcess[str]) -> list[str]:
@@ -48,13 +56,21 @@ def ignoring(corpus: Path, *entries: str) -> None:
     (corpus / ".englishpodignore").write_text("\n".join(entries) + "\n", encoding="utf-8")
 
 
-def test_a_run_builds_every_lesson_the_corpus_holds(corpus: Path, run_cli) -> None:
+def test_a_run_builds_every_lesson_the_corpus_holds(
+    corpus: Path, run_cli, tmp_path: Path
+) -> None:
     result = run_cli("build", corpus)
 
     assert result.returncode == 0, result.stderr
     # The lesson whose Markdown carries no code and the one with no dialogue
     # audio are missing, and every other lesson is here.
     assert lesson_codes(result) == ["C0108", "B0110"]
+    # Each note lands in the lesson's own directory in the build tree, one
+    # directory deep or two, and nothing is written into the corpus at all.
+    assert (built_dir(corpus / "0108", tmp_path) / "englishpod_C0108.json").is_file()
+    assert (built_dir(corpus / BATCH / "0110", tmp_path) / "englishpod_B0110.json").is_file()
+    assert not list(built_dir(corpus / "0001", tmp_path).glob("*.json"))
+    assert list(corpus.rglob("*.json")) == []
 
 
 def test_a_batch_directory_is_not_a_lesson_of_its_own(corpus: Path, run_cli) -> None:
@@ -67,7 +83,7 @@ def test_a_batch_directory_is_not_a_lesson_of_its_own(corpus: Path, run_cli) -> 
 
     assert result.returncode == 0, result.stderr
     assert "4 lessons" in result.stderr
-    assert f"{corpus / BATCH} holds" not in result.stderr
+    assert f"{corpus / BATCH} has no Markdown" not in result.stderr
 
 
 def test_a_lesson_missing_its_dialogue_audio_is_skipped_rather_than_built(
@@ -81,7 +97,7 @@ def test_a_lesson_missing_its_dialogue_audio_is_skipped_rather_than_built(
 
 
 def test_a_lesson_with_no_vocabulary_to_blank_is_skipped_rather_than_built(
-    corpus: Path, run_cli
+    corpus: Path, run_cli, tmp_path: Path
 ) -> None:
     """A card with nothing blanked looks complete and tests nothing.
 
@@ -90,7 +106,7 @@ def test_a_lesson_with_no_vocabulary_to_blank_is_skipped_rather_than_built(
     dialogue never says.
     """
     lesson = corpus / "0108"
-    (lesson / "englishpod_D0108.md").write_text(
+    (built_dir(lesson, tmp_path) / "englishpod_C0108.md").write_text(
         "# C0108\n"
         "\n"
         "## Dialogue\n"
@@ -113,7 +129,7 @@ def test_a_lesson_with_no_vocabulary_to_blank_is_skipped_rather_than_built(
 
 
 def test_a_lesson_that_cannot_be_read_at_all_does_not_stop_the_run(
-    pdf_corpus: Path, run_cli
+    pdf_corpus: Path, run_cli, tmp_path: Path
 ) -> None:
     """A corrupt file is a skipped lesson like any other, not a traceback.
 
@@ -127,18 +143,20 @@ def test_a_lesson_that_cannot_be_read_at_all_does_not_stop_the_run(
     result = run_cli("preprocess", pdf_corpus)
 
     assert result.returncode == 0, result.stderr
-    assert (pdf_corpus / "0108" / "englishpod_D0108.md").is_file()
+    assert (built_dir(pdf_corpus / "0108", tmp_path) / "englishpod_C0108.md").is_file()
     assert f"cannot read {broken / 'englishpod_B0001.pdf'}" in result.stderr
     assert "preprocess: 3 lessons: 1 written, 2 skipped" in result.stderr
 
 
-def test_one_malformed_lesson_does_not_stop_the_run(corpus: Path, run_cli) -> None:
+def test_one_malformed_lesson_does_not_stop_the_run(
+    corpus: Path, run_cli, tmp_path: Path
+) -> None:
     """The fixture's first lesson carries no lesson code, and is not the last."""
     result = run_cli("build", corpus)
 
     assert result.returncode == 0, result.stderr
     assert lesson_codes(result) == ["C0108", "B0110"]
-    assert f"{corpus / '0001' / 'englishpod_B0001.md'} carries no lesson code" in result.stderr
+    assert "0001" in result.stderr and "no lesson code" in result.stderr
 
 
 def test_the_run_ends_with_a_summary_of_what_it_skipped_and_why(
@@ -163,7 +181,7 @@ def test_a_run_that_worked_on_no_lesson_at_all_says_so_in_its_exit_code(
     result = run_cli("build", corpus)
 
     assert result.returncode == 1
-    assert "build: 4 lessons: 4 skipped" in result.stderr
+    assert "build: 2 lessons: 2 skipped" in result.stderr
 
 
 def test_pointing_at_one_lesson_is_still_a_run_over_one_lesson(
@@ -304,11 +322,13 @@ def test_a_directory_of_transcripts_beside_the_lessons_is_reported_once(
     assert "preprocess: 3 lessons: 1 written, 2 skipped" in result.stderr
 
 
-def test_preprocess_runs_over_every_lesson_the_corpus_holds(pdf_corpus: Path, run_cli) -> None:
+def test_preprocess_runs_over_every_lesson_the_corpus_holds(
+    pdf_corpus: Path, run_cli, tmp_path: Path
+) -> None:
     result = run_cli("preprocess", pdf_corpus)
 
     assert result.returncode == 0, result.stderr
-    written = pdf_corpus / "0108" / "englishpod_D0108.md"
+    written = built_dir(pdf_corpus / "0108", tmp_path) / "englishpod_C0108.md"
     assert written.read_text(encoding="utf-8").startswith("# C0108\n")
     assert str(written) in result.stdout
     # The scan is reported with the reason, and the lesson with a text layer
@@ -332,7 +352,9 @@ def test_preprocess_counts_the_markdown_files_it_leaves_alone(
     assert "preprocess: 2 lessons: 1 already had a Markdown file, 1 skipped" in result.stderr
 
 
-def test_a_batch_pdf_supplies_a_lesson_whose_own_pdf_cannot(corpus: Path, run_cli) -> None:
+def test_a_batch_pdf_supplies_a_lesson_whose_own_pdf_cannot(
+    corpus: Path, run_cli, tmp_path: Path
+) -> None:
     """A lesson above 250 is in the batch's PDF beside it, and one run recovers it.
 
     The fixture's introduction sheet carries no lesson code, as the corpus's do
@@ -340,12 +362,11 @@ def test_a_batch_pdf_supplies_a_lesson_whose_own_pdf_cannot(corpus: Path, run_cl
     built from it is a card like any other.
     """
     lesson = corpus / BATCH / "0110"
-    (lesson / "englishpod_B0110.md").unlink()
 
-    preprocess = run_cli("preprocess", corpus)
+    preprocess = run_cli("preprocess", corpus, "--force")
 
     assert preprocess.returncode == 0, preprocess.stderr
-    assert (lesson / "englishpod_C0110.md").is_file()
+    assert (built_dir(lesson, tmp_path) / "englishpod_C0110.md").is_file()
     build = run_cli("build", corpus)
     assert build.returncode == 0, build.stderr
     # The code the note is identified by is the one read out of the batch's PDF,
@@ -515,7 +536,7 @@ def test_an_ignore_file_that_cannot_be_read_is_reported(corpus: Path, run_cli) -
 
 
 def test_ignoring_every_lesson_of_a_batch_leaves_the_batch_directory_a_lesson(
-    corpus: Path, run_cli
+    corpus: Path, run_cli, tmp_path: Path
 ) -> None:
     """The lessons go; the directory that held them takes their place, reported.
 
@@ -529,4 +550,5 @@ def test_ignoring_every_lesson_of_a_batch_leaves_the_batch_directory_a_lesson(
 
     assert result.returncode == 0, result.stderr
     assert "build: 3 lessons: 1 built, 2 skipped" in result.stderr
-    assert f"{corpus / BATCH} holds no Markdown" in result.stderr
+    # The batch directory is a lesson now, and holds no Markdown of its own.
+    assert "build/0110-0111" in result.stderr and "has no Markdown" in result.stderr

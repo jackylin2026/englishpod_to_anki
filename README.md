@@ -3,9 +3,9 @@
 Turns a downloaded EnglishPod corpus into Anki cards in your own collection.
 
 You point it at the corpus you have downloaded, and it reads each lesson's PDF,
-writes a Markdown file beside it, works out the note that lesson becomes, and
-sends it to Anki. The corpus stays where it is — nothing in it is moved or
-rewritten.
+works out the note that lesson becomes, and sends it to Anki. The corpus stays
+exactly as you downloaded it — the tool writes nothing into it. Its own files go
+to a *build directory*, one subdirectory to a lesson.
 
 This guide goes from a fresh clone to a card you can study, one step at a time.
 Once you have run it once, [the reference](docs/reference.md) has the full
@@ -18,19 +18,60 @@ or against the whole corpus in one run.
 
 | Stage | Reads | Does |
 | --- | --- | --- |
-| `preprocess` | a lesson's PDF | writes a Markdown file beside it |
-| `build` | that Markdown | prints the note it would create, as JSON; Anki untouched |
-| `import` | the same note | adds it to your collection through AnkiConnect |
+| `preprocess` | a lesson's PDF | writes a Markdown file into the build directory |
+| `build` | that Markdown | writes the note it would create, as JSON, beside it; Anki untouched |
+| `import` | the same Markdown | builds the note again and adds it through AnkiConnect |
 
 The Markdown in the middle is the point of the design. It is where an OCR slip
 or a bad line break can be read and corrected once, by hand, rather than
 inherited by every card built from it.
+
+The note JSON is a report on that Markdown rather than a step between the
+stages: `import` builds the note again from the Markdown rather than reading the
+file back, so the file is how a person reads a note and never something a later
+stage depends on.
 
 A *lesson directory* is a directory inside the corpus holding one lesson's
 files — its PDF and its recordings — such as `.../英语博客100-150/0108`. The
 corpus nests its later lessons ten to a directory, so the path to a lesson can
 be one directory deep or two. Every command below takes either one lesson
 directory or the corpus directory holding them all.
+
+## Where the tool writes
+
+Your corpus is never written into. Everything the tool works out about a lesson
+— the Markdown, the note JSON, the print transcript's version of the dialogue —
+goes to a **build directory**, in a subdirectory named for the lesson:
+
+```
+build/
+├─ 0108/
+│  ├─ englishpod_C0108.md
+│  └─ englishpod_C0108.json
+└─ 0297/
+   ├─ englishpod_C0297.md
+   └─ englishpod_C0297.json
+```
+
+That directory is `build/` under wherever you run the command, unless you say
+otherwise; the tool makes it when it is not there. To keep it somewhere fixed —
+beside the project, say — write the path into the `.env` file in the directory
+you run from:
+
+```
+ENGLISHPOD_BUILD_DIR=/home/you/ai/claude/englishpod_to_anki/build
+```
+
+or set that name in the environment for a single run. The recordings stay in the
+corpus: `build/` holds only text.
+
+A corpus you preprocessed with an older version still holds its Markdowns beside
+its PDFs. `scripts/move_to_build.py` moves them where the tool now looks:
+
+```bash
+python scripts/move_to_build.py --dry-run /path/to/corpus
+python scripts/move_to_build.py /path/to/corpus
+```
 
 ## What you need
 
@@ -74,16 +115,22 @@ each one.
 
 ## Step 2 — Preprocess a lesson
 
-`preprocess` reads a lesson's PDF and writes a Markdown file beside it. Start
-with one lesson rather than the whole corpus, so you can see what it does:
+`preprocess` reads a lesson's PDF and writes a Markdown file into the build
+directory, under a subdirectory named for the lesson. Start with one lesson
+rather than the whole corpus, so you can see what it does:
 
 ```bash
 englishpod-to-anki preprocess /path/to/corpus/英语博客100-150/0108
 ```
 
 ```
-preprocess: wrote /path/to/corpus/英语博客100-150/0108/englishpod_D0108.md
+preprocess: wrote /path/to/build/0108/englishpod_C0108.md
 ```
+
+The subdirectory is the lesson's own name in the corpus — `0108` — and the file
+is named for the code printed inside the lesson. Where `build` is depends on
+where you ran the command; see [Where the tool
+writes](#where-the-tool-writes) above.
 
 Open that file. It holds the lesson's dialogue and both vocabulary tables as
 plain Markdown, and it is the one place a mistake is cheap to fix: correct it
@@ -93,44 +140,64 @@ record of what the lesson says.
 
 ## Step 3 — Build the note, without touching Anki
 
-`build` reads what `preprocess` wrote and prints the note that lesson would
-become. It touches no collection and no lesson, which makes it the cheap way to
-see what an import would do:
+`build` reads what `preprocess` wrote and works out the note that lesson would
+become, leaving it as a JSON document beside the Markdown — `englishpod_C0108.json`
+next to `englishpod_C0108.md`. It touches no collection, which makes it the cheap
+way to see what an import would do:
 
 ```bash
 englishpod-to-anki build /path/to/corpus/英语博客100-150/0108
 ```
 
-You get one JSON document on a single line. Abridged, it reads:
-
 ```
-{"lesson_code": "C0108", "deck": "EnglishPod", "note_type": "EnglishPod Cloze",
- "tags": ["englishpod::C0108"],
- "fields": {"Sentences": "A: Morning, Ed. The auditors arrive on Monday, and I
- want the {{c1::stockroom}} {{c1::immaculate}} before they get here.\n<br>B: …",
- "Phonetic symbols": "/ˈstɑˌkrum/<br>/ˌɪˈmækjulɪt/<br>…",
- "Words": "stockroom -&gt; the room where goods are kept<br>…",
- "Synonym": "", "Word Family": "", "TTS": "[sound:englishpod_D0108dg.mp3]"},
- "audio": {…}, "unmatched_terms": […], "untranscribed_terms": []}
+build: wrote /path/to/build/0108/englishpod_C0108.json
+```
+
+Open that file and the note is there in full. Abridged, it reads:
+
+```json
+{
+  "lesson_code": "C0108",
+  "deck": "EnglishPod",
+  "note_type": "EnglishPod Cloze",
+  "tags": ["englishpod::C0108"],
+  "fields": {
+    "Sentences": "A: ... Now that we have been over the {{c1::gory details}} of our {{c1::disastrous}} first quarter, Ed! …\n<br>B: Uh well...would you like the bad news first or the really bad news?",
+    "Phonetic symbols": "/ˈplʌndʒ/<br>/dɪˈzæstrəs/<br>/ˈoʊvɚˈstɑkt/<br>…",
+    "Words": "gory details -&gt; all the small details<br>lay it on me -&gt; tell me the bad news<br>plunge -&gt; drop down suddenly and quickly<br>…",
+    "Synonym": "",
+    "Word Family": "",
+    "TTS": "[sound:englishpod_D0108dg.mp3]"
+  },
+  "audio": {
+    "filename": "englishpod_D0108dg.mp3",
+    "path": "/path/to/corpus/英语博客100-150/0108/englishpod_D0108dg.mp3"
+  },
+  "unmatched_terms": ["lay it on me", "shoulder the cost", "chapter elven", "quality control"],
+  "untranscribed_terms": []
+}
 ```
 
 `Sentences` is the dialogue with every Key Vocabulary term blanked out, and
 `Words` is the glossary — the two halves of the card. A run over the corpus
-prints one line like this per lesson, so it is also what you would redirect
-into a file (`> notes.jsonl`) to keep.
+leaves one file like this in each lesson's own subdirectory, so a note can be
+read back later without running the stage again. Run `build` again and the file
+is written afresh: it is always the note the Markdown makes now.
 
 Two warnings may appear on the way, both on stderr, and neither one fails the
 build — they are things to look at, not errors:
 
-- `C0108: no dialogue line carries write off` — a Key Vocabulary term the
-  dialogue never actually contains. A row like `chapter elven` for `eleven`
-  wants a human eye, so the term is reported rather than fuzzily matched.
-- `C0108: no transcription for goosebumps` — no dictionary could be reached or
-  none knew the word. The card is made either way, with that one blank.
+- `C0108: no dialogue line carries lay it on me, shoulder the cost, chapter elven, quality control`
+  — Key Vocabulary terms the dialogue never actually contains. A row like
+  `chapter elven` for `eleven` wants a human eye, so the term is reported rather
+  than fuzzily matched.
+- `C0119: no transcription for goosebumps` — no dictionary could be reached or
+  none knew the word. The card is made either way, with that one blank. The code
+  is the warning's own lesson: 0108's words were all transcribed.
 
 `build` may reach the network to look up phonetic transcriptions. Add
 `--offline` to keep it to the dictionary that ships with the tool and the file
-beside it, and to touch the network not at all:
+it keeps, and to touch the network not at all:
 
 ```bash
 englishpod-to-anki build /path/to/corpus/英语博客100-150/0108 --offline
@@ -187,7 +254,7 @@ it, in one run:
 
 ```bash
 englishpod-to-anki preprocess /path/to/corpus
-englishpod-to-anki build    /path/to/corpus > notes.jsonl
+englishpod-to-anki build    /path/to/corpus
 englishpod-to-anki import   /path/to/corpus --existing skip
 ```
 
@@ -215,14 +282,30 @@ this terminal first.
 
 ### How do I see what a card will look like without touching my collection?
 
-Run `build` instead of `import` — it prints the note and writes nothing. It is
-the same note `import` would send.
+Run `build` instead of `import` — it leaves the note as a JSON file beside the
+lesson's Markdown and never reaches Anki. It is the same note `import` would
+send, because `import` builds the note again from that Markdown rather than
+reading the file back.
 
 ### A lesson was skipped. Where do I read why?
 
 At the end of the run, under `skipped:`, one line per lesson with its reason.
-Those lines go to stderr, so a command that redirects stdout to a file still
-shows them in the terminal.
+Those lines go to stderr, so they stand apart from the `wrote` lines stdout
+carries.
+
+### `... has no Markdown in ...; run preprocess on it first`
+
+`build` and `import` read the Markdown `preprocess` wrote, not the lesson's PDF,
+and this lesson has no Markdown in the build directory yet. Put one there:
+
+```bash
+englishpod-to-anki preprocess /path/to/corpus/英语博客100-150/0108
+```
+
+A run over a corpus you have not preprocessed does the same thing lesson by
+lesson — every lesson is skipped with this reason, one line each — and a run
+that worked on no lesson at all exits non-zero. Nothing is lost: run
+`preprocess` over the corpus, then the stage again.
 
 ### A lesson was skipped because it has no text layer
 
@@ -260,7 +343,7 @@ SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt englishpod-to-anki preprocess /
 The tool verifies the deck rather than creating one. Make a deck named exactly
 `EnglishPod` in Anki — case and spelling matter — and run the import again.
 
-### `cannot reach AnkiConnect at 127.0.0.1:8765`
+### `cannot reach AnkiConnect at http://127.0.0.1:8765`
 
 Anki is not running, or the AnkiConnect add-on is not installed. Open Anki and
 try again. For AnkiConnect listening somewhere else — on another machine, or on
@@ -272,6 +355,10 @@ Anki 23.10 or newer.
 No. `preprocess` leaves an existing Markdown file alone. Only `--force`
 regenerates it — which is what you want after a parser fix, and what you must
 not use afterwards, because it would undo your own corrections.
+
+The note JSON beside it is the other way round: `build` writes it afresh on
+every run, so it is not the file to correct. Correct the Markdown, run `build`
+again, and the note is the note the corrected Markdown makes.
 
 ### Do I have to be online?
 
@@ -290,15 +377,15 @@ lookup.
 ### The print transcript's dialogue differs from the lesson's
 
 Pass `--print-transcript` and the run checks each lesson against the corpus's
-condensed print version, writing its version beside the lesson's Markdown and
-naming any lesson whose dialogue reads differently:
+condensed print version, writing its version beside the lesson's Markdown in the
+build directory and naming any lesson whose dialogue reads differently:
 
 ```bash
 englishpod-to-anki preprocess /path/to/corpus --print-transcript "/path/to/English_Pod_1-330….pdf"
 ```
 
-It is a warning and nothing more: the lesson's own Markdown, the file beside it
-and the card built from it are the lesson's own either way. It exists so a
+It is a warning and nothing more: the lesson's own Markdown, the print's file
+beside it and the card built from it are the lesson's own either way. It exists so a
 parsing regression gets looked at rather than passing silently.
 
 ### Something in the corpus is not a lesson, and a run trips over it

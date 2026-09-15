@@ -11,6 +11,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from conftest import markdown_file
 from stub_anki import StubAnki, existing
 
 FIELDS = ["Sentences", "Phonetic symbols", "Words", "Synonym", "Word Family", "TTS"]
@@ -392,14 +393,14 @@ def test_a_card_playing_another_lessons_recording_is_not_this_lesson(
 
 
 def test_a_card_that_spells_out_what_the_corpus_printed_as_an_entity_is_still_the_lesson(
-    markdown_lesson: Path, stub, run_cli
+    markdown_lesson: Path, stub, run_cli, tmp_path: Path
 ) -> None:
     """One lesson's text layer prints `&quot;`, which a card ends up escaping twice.
 
     A card made from the same dialogue with the character itself is not a
     different lesson because of it.
     """
-    lesson = markdown_lesson / "englishpod_D0108.md"
+    lesson = markdown_file(markdown_lesson, tmp_path)
     lesson.write_text(lesson.read_text().replace("Morning, Ed.", "Morning, &quot;Ed.&quot;"))
     anki = stub(
         existing(

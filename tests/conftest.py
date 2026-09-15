@@ -13,6 +13,18 @@ import pytest
 
 from stub_anki import StubAnki
 
+# The tool's own reading of a lesson directory, imported by name rather than as
+# a module: `lesson` is a fixture here, and a fixture would shadow it. A fixture
+# is put in the state a run would leave it in with the tool's own rules rather
+# than with rules invented beside them.
+from englishpod_to_anki.lesson import (
+    LessonError,
+    lesson_markdowns,
+    read_markdown,
+    transcript_file,
+)
+from englishpod_to_anki.paths import BUILD
+
 REPOSITORY = Path(__file__).resolve().parent.parent
 SRC = REPOSITORY / "src"
 FIXTURES = REPOSITORY / "tests" / "fixtures"
@@ -35,8 +47,14 @@ def lesson(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def markdown_lesson(tmp_path: Path) -> Path:
-    """A copy of the lesson that exists as Markdown, beside its dialogue audio."""
-    return _copied(MARKDOWN_LESSON, tmp_path)
+    """A copy of the lesson that exists as Markdown rather than as a PDF.
+
+    Its own directory holds the dialogue audio and no Markdown, as a lesson
+    directory in the corpus does: the Markdown is the tool's own file, so it sits
+    where a run would have put it -- in the build directory, under the lesson's
+    own name.
+    """
+    return _seeded(_copied(MARKDOWN_LESSON, tmp_path), tmp_path)
 
 
 @pytest.fixture
@@ -51,9 +69,11 @@ def corpus(tmp_path: Path) -> Path:
 
     It carries what the real corpus does: lessons one or two directories deep,
     the batch directories that nest them carrying a combined PDF of their own,
-    and a directory holding something that is not a lesson at all.
+    and a directory holding something that is not a lesson at all. Each lesson's
+    Markdown is put where the corpus keeps the ones it has already: in the build
+    directory.
     """
-    return _copied(CORPUS, tmp_path)
+    return _seeded(_copied(CORPUS, tmp_path), tmp_path)
 
 
 @pytest.fixture
@@ -73,6 +93,63 @@ def _copied_into(source: Path, destination: Path) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination)
     return destination
+
+
+def _seeded(root: Path, tmp_path: Path) -> Path:
+    """Move the Markdowns under `root` into the build directory, as a run names them.
+
+    A fixture is drawn the way the corpus was before the tool kept its own files
+    apart -- a Markdown beside the lesson's PDF -- and this is the migration the
+    corpus's own Markdowns went through: each file moved into the lesson's build
+    directory and renamed for the code it carries, so that the lesson holds the
+    one file a run would write there and no second one beside it. A Markdown
+    that carries no code keeps the name it has: it is a lesson the tool cannot
+    build, and a run is expected to say so about it.
+    """
+    # The root is a lesson directory as often as it is a corpus, and a walk of
+    # what is under a directory never yields the directory itself.
+    directories = [root, *(d for d in sorted(root.rglob("*")) if d.is_dir())]
+    for directory in directories:
+        for held in lesson_markdowns(directory):
+            try:
+                name = f"englishpod_{read_markdown(held).code}.md"
+            except LessonError:
+                name = held.name
+            build = built_dir(directory, tmp_path)
+            build.mkdir(parents=True, exist_ok=True)
+            moved = build / name
+            beside = transcript_file(held)
+            held.replace(moved)
+            if beside.exists():
+                beside.replace(transcript_file(moved))
+    return root
+
+
+def built_dir(lesson_dir: Path, tmp_path: Path) -> Path:
+    """Where a run pointed at this lesson keeps what it writes about it.
+
+    The directory the tool is given for the test's run, and the subdirectory it
+    makes for the lesson -- which is named for the lesson's own directory, not for
+    the code inside it, since the code is only known once the lesson has been read.
+    """
+    return tmp_path / BUILD_DIR / lesson_dir.name
+
+
+def markdown_file(lesson_dir: Path, tmp_path: Path) -> Path:
+    """The Markdown a lesson has in the build directory, read back.
+
+    Found rather than named: it is called after the code inside the lesson, which
+    is not the name of the directory it sits in. The print transcript's file for
+    the lesson sits beside it, and is told apart by its name, as the tool tells
+    them apart.
+    """
+    directory = built_dir(lesson_dir, tmp_path)
+    (path,) = [
+        held
+        for held in directory.glob("englishpod_*.md")
+        if not held.name.endswith(".transcript.md")
+    ]
+    return path
 
 
 @pytest.fixture
@@ -113,10 +190,15 @@ def stub():
         instance.close()
 
 
-# The stages that build a card, and so the ones that ask what a word sounds
-# like. A test's own transcriptions file sits beside the test's other files.
+# The two stages that build a card -- and so ask what a word sounds like. A
+# test's own transcriptions file sits beside the test's other files.
 CARD_STAGES = ("build", "import")
 TRANSCRIPTIONS = "transcriptions.tsv"
+
+# Where every stage keeps what it writes. It is the test's own directory, since
+# the tool would otherwise write into the repository's own build directory,
+# which belongs to the learner.
+BUILD_DIR = "build"
 
 # The flags that say where a card-building run looks for a transcription.
 DICTIONARY_FLAGS = ("--transcriptions", "--dictionary-url", "--wiktionary-url", "--offline")
@@ -153,14 +235,21 @@ def run_cli(tmp_path: Path):
             text=True,
             input=input,
             cwd=cwd,
-            env={**os.environ, "PYTHONPATH": str(SRC)},
+            # The build directory is the test's, said in the environment so that a
+            # run made from the repository -- and a `.env` in it, naming the
+            # learner's own -- cannot send a test's files there.
+            env={
+                **os.environ,
+                "PYTHONPATH": str(SRC),
+                BUILD: str(tmp_path / BUILD_DIR),
+            },
         )
 
     return run
 
 
 def _kept_local(arguments: tuple[object, ...], tmp_path: Path) -> list[str]:
-    """One run's arguments, with a card-building stage given a file and no network.
+    """One run's arguments, with a card stage given a file and no network.
 
     The two are decided apart: the file is always the test's, since a test has
     no business writing the learner's, while the network is only avoided when

@@ -13,10 +13,9 @@ it, and `stockroom` and `govern` for two it knows. The services are
 was asked -- which is how "asked about once" is shown to be true rather than
 asserted.
 
-`tests/fixtures/corpus` holds the one lesson whose vocabulary the offline
-dictionary lacks -- `newsagent`, in lesson 0001 -- which is why every run over
-the corpus fixture is offline unless a test says otherwise: the fixture's own
-run_cli sees to it.
+Every run over the corpus fixture is offline unless a test says otherwise -- the
+fixture's own `run_cli` sees to it -- and the corpus it copies carries a lesson
+whose vocabulary the offline dictionary lacks: `newsagent`, in lesson 0001.
 """
 
 from __future__ import annotations
@@ -83,11 +82,18 @@ def services(stub: StubDictionary, *arguments: object) -> tuple[object, ...]:
 
 
 def lesson(tmp_path: Path, *terms: str, name: str = "lesson") -> Path:
-    """A lesson whose Key Vocabulary is the terms a test names."""
+    """A lesson whose Key Vocabulary is the terms a test names.
+
+    The Markdown is the tool's own file, so it is put where the tool keeps one:
+    in the lesson's directory in the build tree, under the code it carries. The
+    recording stays in the lesson directory, where the corpus gave it.
+    """
     directory = tmp_path / name
     directory.mkdir(parents=True, exist_ok=True)
     rows = "".join(f"| {term} | common noun, singular | a thing |\n" for term in terms)
-    (directory / "englishpod_X0001.md").write_text(
+    build = tmp_path / "build" / name
+    build.mkdir(parents=True, exist_ok=True)
+    (build / "englishpod_X0001.md").write_text(
         "# X0001\n"
         "\n"
         "## Dialogue\n"
@@ -105,11 +111,22 @@ def lesson(tmp_path: Path, *terms: str, name: str = "lesson") -> Path:
     return directory
 
 
-def built(lesson: Path, run_cli, *arguments: object) -> dict:
-    """Build a lesson and give back the note it emitted."""
+def wrote(lesson: Path, tmp_path: Path) -> dict:
+    """The note a build wrote for a lesson, read back out of the build tree.
+
+    Found rather than named: a lesson is built either from this module's own
+    fixture or from the corpus's sample one, and the file is named for the code
+    inside the lesson, not for the directory it sits in.
+    """
+    (path,) = (tmp_path / "build" / lesson.name).glob("englishpod_*.json")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def built(lesson: Path, run_cli, tmp_path: Path, *arguments: object) -> dict:
+    """Build a lesson and give back the note it wrote."""
     result = run_cli("build", lesson, *arguments)
     assert result.returncode == 0, result.stderr
-    return json.loads(result.stdout)
+    return wrote(lesson, tmp_path)
 
 
 def entries(path: Path) -> list[str]:
@@ -124,11 +141,11 @@ def entries(path: Path) -> list[str]:
 
 
 def test_a_single_word_term_is_transcribed_and_a_phrase_is_not(
-    markdown_lesson: Path, dictionary, run_cli
+    markdown_lesson: Path, dictionary, run_cli, tmp_path: Path
 ) -> None:
     """Both tables feed the field, and a phrase feeds it nothing."""
     service = dictionary({"stockroom": "/not this one/"})
-    note = built(markdown_lesson, run_cli, *services(service))
+    note = built(markdown_lesson, run_cli, tmp_path, *services(service))
 
     symbols = note["fields"]["Phonetic symbols"]
     # Key Vocabulary first, then Supplementary, each word once.
@@ -145,10 +162,10 @@ def test_a_single_word_term_is_transcribed_and_a_phrase_is_not(
 
 
 def test_a_word_the_offline_dictionary_knows_is_never_asked_about(
-    markdown_lesson: Path, dictionary, run_cli, transcriptions: Path
+    markdown_lesson: Path, dictionary, run_cli, transcriptions: Path, tmp_path: Path
 ) -> None:
     stub = dictionary()
-    built(markdown_lesson, run_cli, *services(stub))
+    built(markdown_lesson, run_cli, tmp_path, *services(stub))
 
     assert stub.requests == []
     # And nothing was written down: what the offline dictionary answered is
@@ -160,7 +177,7 @@ def test_a_word_the_dictionary_lacks_is_asked_about_once_and_written_down(
     tmp_path: Path, dictionary, run_cli, transcriptions: Path
 ) -> None:
     stub = dictionary({DODGY: "/ˈdoʊdʒi/"})
-    note = built(lesson(tmp_path, DODGY), run_cli, *services(stub))
+    note = built(lesson(tmp_path, DODGY), run_cli, tmp_path, *services(stub))
 
     assert note["fields"]["Phonetic symbols"] == "/ˈdoʊdʒi/"
     assert note["untranscribed_terms"] == []
@@ -174,14 +191,14 @@ def test_a_later_build_reads_the_file_and_asks_nothing(
     tmp_path: Path, dictionary, run_cli, transcriptions: Path
 ) -> None:
     stub = dictionary({DODGY: "/ˈdoʊdʒi/"})
-    first = built(lesson(tmp_path, DODGY), run_cli, *services(stub))
+    first = built(lesson(tmp_path, DODGY), run_cli, tmp_path, *services(stub))
     written = transcriptions.read_text(encoding="utf-8")
 
     # The second run is given services that are not there at all: a run that
     # needs to ask one of them cannot produce this card.
     again = built(
         lesson(tmp_path, DODGY),
-        run_cli,
+        run_cli, tmp_path,
         "--dictionary-url",
         DEAD,
         "--wiktionary-url",
@@ -198,7 +215,7 @@ def test_a_hand_edited_entry_is_never_overwritten_by_a_lookup(
     transcriptions.write_text(f"{DODGY}\t/ˈby hand/\n", encoding="utf-8")
     stub = dictionary({DODGY: "/ˈdoʊdʒi/"})
 
-    note = built(lesson(tmp_path, DODGY), run_cli, *services(stub))
+    note = built(lesson(tmp_path, DODGY), run_cli, tmp_path, *services(stub))
 
     assert note["fields"]["Phonetic symbols"] == "/ˈby hand/"
     assert stub.requests == []
@@ -209,15 +226,15 @@ def test_a_word_two_lessons_carry_is_asked_about_once(
     tmp_path: Path, dictionary, run_cli
 ) -> None:
     """A corpus run meets the same word in a dozen lessons; the network is slow."""
-    lesson(tmp_path, DODGY, name="one")
-    lesson(tmp_path, DODGY, name="two")
     stub = dictionary({DODGY: "/ˈdoʊdʒi/"})
+    built_lessons = (lesson(tmp_path, DODGY, name="one"), lesson(tmp_path, DODGY, name="two"))
 
     result = run_cli("build", tmp_path, *services(stub))
 
     assert result.returncode == 0, result.stderr
     assert stub.asked(DICTIONARY) == [DODGY]
-    assert result.stdout.count("/ˈdoʊdʒi/") == 2
+    # Both lessons carry the word and both cards do; the network was asked once.
+    assert [wrote(one, tmp_path)["fields"]["Phonetic symbols"] for one in built_lessons] == ["/ˈdoʊdʒi/"] * 2
 
 
 def test_the_file_is_read_before_the_offline_dictionary(
@@ -226,7 +243,7 @@ def test_the_file_is_read_before_the_offline_dictionary(
     """A word the offline dictionary knows is still the file's to correct."""
     transcriptions.write_text(f"{GOVERN}\t/ˈby hand/\n", encoding="utf-8")
 
-    note = built(lesson(tmp_path, GOVERN), run_cli, "--dictionary-url", DEAD, "--wiktionary-url", DEAD)
+    note = built(lesson(tmp_path, GOVERN), run_cli, tmp_path, "--dictionary-url", DEAD, "--wiktionary-url", DEAD)
 
     assert note["fields"]["Phonetic symbols"] == "/ˈby hand/"
 
@@ -241,7 +258,7 @@ def test_a_word_no_dictionary_has_is_left_blank_and_reported(
     result = run_cli("build", built_lesson, *services(stub))
 
     assert result.returncode == 0, result.stderr
-    note = json.loads(result.stdout)
+    note = wrote(built_lesson, tmp_path)
     assert note["fields"]["Phonetic symbols"] == ""
     assert note["untranscribed_terms"] == [DODGY]
     assert DODGY in result.stderr
@@ -252,7 +269,7 @@ def test_a_word_no_dictionary_has_is_left_blank_and_reported(
     # nobody, which is the whole point of writing the miss down.
     asked = list(stub.requests)
     again = run_cli("build", built_lesson, *services(stub))
-    assert json.loads(again.stdout)["untranscribed_terms"] == [DODGY]
+    assert wrote(built_lesson, tmp_path)["untranscribed_terms"] == [DODGY]
     assert DODGY in again.stderr
     assert stub.requests == asked
 
@@ -261,9 +278,10 @@ def test_an_unreachable_service_leaves_the_word_reported_and_unwritten(
     tmp_path: Path, run_cli, transcriptions: Path
 ) -> None:
     """A service that is not there has said nothing about the word."""
+    built_lesson = lesson(tmp_path, DODGY)
     result = run_cli(
         "build",
-        lesson(tmp_path, DODGY),
+        built_lesson,
         "--dictionary-url",
         DEAD,
         "--wiktionary-url",
@@ -271,7 +289,7 @@ def test_an_unreachable_service_leaves_the_word_reported_and_unwritten(
     )
 
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["untranscribed_terms"] == [DODGY]
+    assert wrote(built_lesson, tmp_path)["untranscribed_terms"] == [DODGY]
     assert DODGY in result.stderr
     # Both services are the same address here, so one note covers them.
     assert result.stderr.count(f"{DEAD} could not be asked") == 1
@@ -286,10 +304,11 @@ def test_a_service_that_will_not_answer_is_not_asked_once_per_word(
     stub = dictionary({DODGY: "/ˈdoʊdʒi/", UNDIES: "/ˈʌndiz/"})
     stub.fail(500)
 
-    result = run_cli("build", lesson(tmp_path, DODGY, UNDIES), *services(stub))
+    built_lesson = lesson(tmp_path, DODGY, UNDIES)
+    result = run_cli("build", built_lesson, *services(stub))
 
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["untranscribed_terms"] == [DODGY, UNDIES]
+    assert wrote(built_lesson, tmp_path)["untranscribed_terms"] == [DODGY, UNDIES]
     # One ask each, not two: a service that refused the first word would refuse
     # the second the same way.
     assert stub.asked(DICTIONARY) == [DODGY]
@@ -301,9 +320,10 @@ def test_a_build_can_be_run_offline_only(
 ) -> None:
     stub = dictionary({DODGY: "/ˈdoʊdʒi/", STOCKROOM: "/not this one/"})
 
+    built_lesson = lesson(tmp_path, DODGY, STOCKROOM)
     result = run_cli(
         "build",
-        lesson(tmp_path, DODGY, STOCKROOM),
+        built_lesson,
         "--offline",
         "--dictionary-url",
         stub.url + DICTIONARY,
@@ -312,7 +332,7 @@ def test_a_build_can_be_run_offline_only(
     )
 
     assert result.returncode == 0, result.stderr
-    note = json.loads(result.stdout)
+    note = wrote(built_lesson, tmp_path)
     # What the offline dictionary knows is transcribed, what it does not is
     # reported, and neither service is asked anything at all.
     assert note["fields"]["Phonetic symbols"] == "/ˈstɑˌkrum/"
@@ -328,13 +348,14 @@ def test_an_offline_build_does_not_settle_a_word_it_could_not_ask_about(
     built_lesson = lesson(tmp_path, DODGY)
 
     offline = run_cli("build", built_lesson, "--offline")
-    assert json.loads(offline.stdout)["untranscribed_terms"] == [DODGY]
+    assert offline.returncode == 0, offline.stderr
+    assert wrote(built_lesson, tmp_path)["untranscribed_terms"] == [DODGY]
     assert entries(transcriptions) == []
 
     # The word is still a word a dictionary may have, so a run that can ask
     # does ask -- and having asked, fills the field.
     stub = dictionary({DODGY: "/ˈdoʊdʒi/"})
-    note = built(built_lesson, run_cli, *services(stub))
+    note = built(built_lesson, run_cli, tmp_path, *services(stub))
 
     assert note["fields"]["Phonetic symbols"] == "/ˈdoʊdʒi/"
     assert stub.asked(DICTIONARY) == [DODGY]
@@ -345,7 +366,7 @@ def test_the_second_service_answers_when_the_first_has_nothing(
 ) -> None:
     stub = dictionary({}, {DODGY: "{{IPA|en|/ˈdɒdʒ.i/}}"})
 
-    note = built(lesson(tmp_path, DODGY), run_cli, *services(stub))
+    note = built(lesson(tmp_path, DODGY), run_cli, tmp_path, *services(stub))
 
     assert note["fields"]["Phonetic symbols"] == "/ˈdɒdʒ.i/"
     assert stub.asked(DICTIONARY) == [DODGY]
@@ -360,7 +381,7 @@ def test_the_american_transcription_is_the_one_a_page_wiktionary_carries(
     page = "{{IPA|en|/ˈdɒd͡ʒ.i/|a=UK}} {{IPA|en|/ˈdoʊdʒi/|a=US}}"
     stub = dictionary({}, {DODGY: page})
 
-    note = built(lesson(tmp_path, DODGY), run_cli, *services(stub))
+    note = built(lesson(tmp_path, DODGY), run_cli, tmp_path, *services(stub))
 
     assert note["fields"]["Phonetic symbols"] == "/ˈdoʊdʒi/"
 
@@ -372,7 +393,7 @@ def test_a_transcription_with_the_accent_hung_off_it_is_read_whole(
     page = "{{IPA|en|/ˈkæri ˌɑn/<a:US,nMmmm>|/ˈkɛri ˌɑn/<a:US,Mmmm>}}"
     stub = dictionary({}, {CARRY_ON: page})
 
-    note = built(lesson(tmp_path, CARRY_ON), run_cli, *services(stub))
+    note = built(lesson(tmp_path, CARRY_ON), run_cli, tmp_path, *services(stub))
 
     assert note["fields"]["Phonetic symbols"] == "/ˈkæri ˌɑn/"
 
@@ -383,7 +404,7 @@ def test_the_tool_says_who_it_is_when_it_asks_wiktionary(
     """Wikimedia answers a script that does not say who it is with a refusal."""
     stub = dictionary({}, {DODGY: "{{IPA|en|/ˈdoʊdʒi/}}"})
 
-    built(lesson(tmp_path, DODGY), run_cli, *services(stub))
+    built(lesson(tmp_path, DODGY), run_cli, tmp_path, *services(stub))
 
     assert "englishpod-to-anki" in stub.caller(WIKTIONARY)[0]
 
@@ -394,7 +415,7 @@ def test_the_file_is_written_in_one_order_and_keeps_what_it_held(
     transcriptions.write_text("# a header\n\nzebra\t/ˈziːbrə/\n", encoding="utf-8")
     stub = dictionary({DODGY: "/ˈdoʊdʒi/"})
 
-    built(lesson(tmp_path, DODGY), run_cli, *services(stub))
+    built(lesson(tmp_path, DODGY), run_cli, tmp_path, *services(stub))
 
     assert entries(transcriptions) == [f"{DODGY}\t/ˈdoʊdʒi/", "zebra\t/ˈziːbrə/"]
 
@@ -412,7 +433,7 @@ def test_a_comment_and_a_blank_line_are_not_entries(
     )
     stub = dictionary({DODGY: "/not this one/"})
 
-    note = built(lesson(tmp_path, DODGY), run_cli, *services(stub))
+    note = built(lesson(tmp_path, DODGY), run_cli, tmp_path, *services(stub))
 
     assert note["fields"]["Phonetic symbols"] == "/ˈdoʊdʒi/"
     assert stub.requests == []
@@ -447,6 +468,6 @@ def test_a_run_that_cannot_write_the_file_still_builds(
         tmp_path.chmod(0o700)
 
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["fields"]["Phonetic symbols"] == "/ˈdoʊdʒi/"
+    assert wrote(built_lesson, tmp_path)["fields"]["Phonetic symbols"] == "/ˈdoʊdʒi/"
     assert "cannot write" in result.stderr
     assert not transcriptions.exists()

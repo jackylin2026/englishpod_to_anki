@@ -31,13 +31,13 @@ from .lesson import (
     lesson_file,
     lesson_files,
     lesson_markdown,
-    lesson_markdowns,
     read_markdown,
     render_dialogue,
     render_markdown,
     same_dialogue,
     transcript_file,
 )
+from .paths import lesson_build
 
 # The lesson code printed inside the PDF, which the filename may disagree with.
 CODE = re.compile(r"\(([A-Za-z]\d{4})\)")
@@ -100,12 +100,19 @@ class Preprocessed:
 def preprocess_lesson(
     lesson_dir: Path,
     *,
+    build: Path,
     force: bool = False,
     reader: Reader | None = None,
     transcript: Transcript | None = None,
 ) -> Preprocessed:
-    """Write the lesson's Markdown beside its PDF -- or into its directory when
-    the lesson is not in that PDF at all.
+    """Write the lesson's Markdown into the build directory, named for its code.
+
+    The corpus is read where it lies and nothing is written into it, so the
+    Markdown goes to the directory the tool keeps for the lesson -- named for the
+    lesson's own directory, since that is what the corpus path says before the
+    lesson has been read. What is written inside it is named for the code, which
+    is what every stage names a lesson by, and which is only known once the
+    document has been read.
 
     Above 250 the corpus keeps an introduction sheet where a lesson's own PDF
     would be, and the lessons themselves in the batch's PDF one directory up, so
@@ -116,7 +123,13 @@ def preprocess_lesson(
     lesson is read back out of the page's pictures instead.
 
     An existing Markdown file is left alone unless `force`, so that a hand
-    correction survives a re-run.
+    correction survives a re-run -- and whether one is there is asked before the
+    PDF is read at all, because reading it is what the OCR pass is paid for and a
+    lesson already written is a lesson with nothing to read it for. One that is
+    there is the file a forced run writes back to when it is named for the code
+    the document prints; a file named for another one is taken away and the
+    code-named file written, so that a lesson holds one Markdown either way and
+    not a second one beside it.
 
     With a `transcript` -- the print transcript, which says what a lesson's
     dialogue reads as in that printing -- the transcript's version is written
@@ -124,11 +137,14 @@ def preprocess_lesson(
     nothing: it is reported, and the lesson is the same lesson either way.
     """
     pdf = lesson_file(lesson_dir, "*.pdf", what="PDF")
-    held = lesson_markdowns(lesson_dir)
-    # A lesson holds one Markdown, whatever its owner called it: the one that is
-    # there is the one a re-run writes to, rather than a second file beside it.
-    markdown = lesson_markdown(lesson_dir) if held else pdf.with_suffix(".md")
-    if markdown.exists() and not force:
+    directory = lesson_build(lesson_dir, build)
+    # The name a run writes to is the code's, which is not known until the
+    # document has been read -- so a file already there is taken as the lesson's
+    # whatever it is called, the way the one Markdown in the lesson's build
+    # directory is, and two of them are a directory this declines to guess
+    # about.
+    markdown = lesson_markdown(directory) if directory.is_dir() else None
+    if markdown is not None and not force:
         return _checked(markdown, written=False, transcript=transcript, force=force)
 
     rows = read_rows(pdf)
@@ -151,13 +167,34 @@ def preprocess_lesson(
         lesson = lesson_in(_lesson_beside(lesson_dir, pdf))
         if lesson is None:  # a slice of a batch begins at a lesson code
             raise LessonError(f"{pdf} carries no lesson code")
-        if not held:
-            # No PDF of its own to name the Markdown after, so it is named for
-            # the code the lesson was found by, as every other stage names it.
-            markdown = lesson_dir / f"englishpod_{lesson.code}.md"
 
-    markdown.write_text(render_markdown(lesson), encoding="utf-8")
+    if markdown is None:
+        # No Markdown of the lesson's own yet, so it is named for the code it was
+        # read by, as every other stage names it.
+        markdown = directory / f"englishpod_{lesson.code}.md"
+    elif markdown.name != f"englishpod_{lesson.code}.md":
+        # A forced run has just read the code out of the document, and the file
+        # that is there was named for a different one. The run writes the file
+        # the code names and takes the other away, so that the lesson holds one
+        # Markdown -- the one every later stage looks for -- rather than two.
+        markdown.unlink()
+        markdown = directory / f"englishpod_{lesson.code}.md"
+    _written(markdown, render_markdown(lesson))
     return _checked(markdown, written=True, transcript=transcript, force=force)
+
+
+def _written(path: Path, text: str) -> None:
+    """Write one of the tool's files, making its directory and naming the path.
+
+    A build directory is made when it is not there rather than asked for, since
+    where it is is the run's business rather than the corpus's. A write that fails
+    is the stage's one line rather than a traceback, as the note file's is.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    except OSError as error:
+        raise LessonError(f"cannot write {path}: {error.strerror}") from error
 
 
 def _checked(
@@ -184,7 +221,7 @@ def _checked(
     # what asks for it again.
     wrote = force or not beside.exists()
     if wrote:
-        beside.write_text(render_dialogue(theirs), encoding="utf-8")
+        _written(beside, render_dialogue(theirs))
     return Preprocessed(
         markdown=markdown,
         written=written,

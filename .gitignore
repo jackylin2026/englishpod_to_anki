@@ -7,3 +7,6 @@ __pycache__/
 
 # The OCR service's key and secret, which are its owner's and nobody else's.
 .env
+
+# What the tool writes: one lesson to a directory, when run from the checkout.
+/build/

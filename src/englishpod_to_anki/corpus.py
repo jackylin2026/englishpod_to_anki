@@ -5,8 +5,9 @@ corpus's own layout is the list, and it is the one that stays right as the
 corpus grows. What the layout does not say out loud is where it stops nesting,
 since the corpus's first families hold one lesson a directory and its later ones
 nest them by the ten, so a lesson is recognised by what a directory holds -- the
-lesson's PDF, its recordings, the Markdown the stages meet on -- and a directory
-holding lessons beneath it is a container rather than a lesson of its own.
+lesson's PDF, its recordings, the Markdown an older version of the tool wrote
+beside them -- and a directory holding lessons beneath it is a container rather
+than a lesson of its own.
 
 The one thing the owner writes down is what is *not* a lesson: a directory named
 in `.englishpodignore`. That much is safe to write down, because the two kinds
@@ -16,9 +17,10 @@ nothing, and the directory it named turns up in the run's report again.
 A run over hundreds of lessons meets lessons it cannot work with. Each is
 skipped and named rather than allowed to stop the run, because a corpus-wide run
 that reports the first unreadable lesson and abandons the other three hundred is
-the thing the run exists to avoid. The one failure that does stop a run is the
-collection itself: an Anki that cannot be reached or will not take a note is a
-problem with the run, not with one lesson.
+the thing the run exists to avoid. The failures that do stop a run are the ones
+no lesson left could get past: an Anki that cannot be reached or will not take a
+note, and the OCR service that will not read a page. Those are problems with the
+run rather than with one lesson.
 """
 
 from __future__ import annotations
@@ -31,9 +33,10 @@ from typing import Generic, TypeVar
 from .lesson import LessonError
 
 # What a lesson directory holds: the lesson's PDF, its recordings, and the
-# Markdown the stages meet on. Any one of them is enough to recognise a lesson
-# by -- a lesson missing its dialogue audio is still a lesson, and one already
-# preprocessed is one whose Markdown sits beside its PDF.
+# Markdown an older version of the tool wrote beside the PDF. Any one of them is
+# enough to recognise a lesson by -- a lesson missing its dialogue audio is still
+# a lesson, and one whose Markdown has been moved to the build directory is still
+# a lesson because its PDF and recordings are there.
 LESSON_FILES = ("*.pdf", "*.mp3", "*.md")
 
 # Where the corpus's owner declares a directory out of scope: one entry to a
@@ -47,7 +50,7 @@ Ignored = Callable[[Path], bool]
 Result = TypeVar("Result")
 
 
-def lessons(root: Path) -> tuple[Path, ...]:
+def lessons(root: Path, *, build: Path | None = None) -> tuple[Path, ...]:
     """Every lesson directory the corpus holds, in path order.
 
     Nothing marks a directory as a lesson's, so the layout decides: a directory
@@ -59,18 +62,34 @@ def lessons(root: Path) -> tuple[Path, ...]:
     The one directory the layout cannot decide is the one the corpus's owner
     declares: a directory named in `.englishpodignore` is not a lesson, and the
     walk neither descends into it nor reports it.
+
+    The other is the directory the tool keeps its own files in, when a run keeps
+    it inside the corpus. It holds a Markdown per lesson, which is one of the
+    things a lesson is recognised by, so a walk that did not pass over it would
+    read the tool's own output as a corpus of lessons that hold no PDF.
     """
     ignored = _ignored(root)
+    mine = _outside(build)
     return tuple(
         sorted(
             lesson
-            for child in _children(root, ignored)
-            for lesson in _lessons_under(child, ignored)
+            for child in _children(root, ignored, mine)
+            for lesson in _lessons_under(child, ignored, mine)
         )
     )
 
 
-def _lessons_under(directory: Path, ignored: Ignored) -> list[Path]:
+def _outside(build: Path | None) -> Ignored | None:
+    """What says a directory is the tool's own, whatever path it is reached by."""
+    if build is None:
+        return None
+    root = build.resolve()
+    return lambda path: path.resolve() == root
+
+
+def _lessons_under(
+    directory: Path, ignored: Ignored, mine: Ignored | None
+) -> list[Path]:
     """Every lesson directory at or under one directory.
 
     A directory holding lesson files is not a lesson when it holds lesson
@@ -79,25 +98,30 @@ def _lessons_under(directory: Path, ignored: Ignored) -> list[Path]:
     """
     inside = [
         lesson
-        for child in _children(directory, ignored)
-        for lesson in _lessons_under(child, ignored)
+        for child in _children(directory, ignored, mine)
+        for lesson in _lessons_under(child, ignored, mine)
     ]
     if inside:
         return inside
     return [directory] if _holds_lesson_files(directory) else []
 
 
-def _children(directory: Path, ignored: Ignored) -> list[Path]:
+def _children(
+    directory: Path, ignored: Ignored, mine: Ignored | None = None
+) -> list[Path]:
     """A directory's subdirectories, without the ones declared out of scope.
 
     An ignored directory is left out here rather than tested for later, so that
     it is neither descended into as a container nor taken for a lesson by the
-    directory that holds it.
+    directory that holds it. The tool's own directory is left out the same way
+    and for the same reason.
     """
     if not directory.is_dir():
         return []
     return sorted(
-        path for path in directory.iterdir() if path.is_dir() and not ignored(path)
+        path
+        for path in directory.iterdir()
+        if path.is_dir() and not ignored(path) and not (mine and mine(path))
     )
 
 
@@ -208,9 +232,11 @@ def run(
 ) -> Run[Result]:
     """Work through every lesson, skipping the ones the stage cannot work with.
 
-    `halt` names the failures that belong to the collection rather than to one
-    lesson. One of those stops the run where it happened, rather than being
-    asked of every lesson left and answered the same way each time.
+    `halt` names the failures that belong to the run rather than to one lesson:
+    a collection that cannot be reached or will not take a note, a service that
+    will not read the next page. One of those stops the run where it happened,
+    rather than being asked of every lesson left and answered the same way each
+    time.
     """
     worked: list[Result] = []
     skipped: list[Unfinished] = []

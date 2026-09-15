@@ -10,6 +10,7 @@ Markdown is the only input that matters.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -22,7 +23,6 @@ from .lesson import (
     LessonError,
     VocabularyTerm,
     lesson_file,
-    lesson_markdown,
     read_markdown,
     unescaped,
 )
@@ -122,7 +122,7 @@ class Note:
     untranscribed_terms: tuple[str, ...]
 
     def as_json(self) -> dict:
-        """The note as the build stage emits it: everything import would send."""
+        """The note as the build stage writes it: everything import would send."""
         return {
             "lesson_code": self.code,
             "deck": self.deck,
@@ -144,15 +144,20 @@ class Blanked:
     blanks: int
 
 
-def build_note(lesson_dir: Path, *, transcribe: Transcriber) -> Note:
+def build_note(lesson_dir: Path, *, markdown: Path, transcribe: Transcriber) -> Note:
     """The note the lesson in `lesson_dir` produces, without touching Anki.
+
+    The two files it needs are not in one place: the Markdown is the tool's own
+    and is kept in the build directory, while the recording is the corpus's and
+    stays where it was downloaded. So the Markdown is handed in rather than
+    looked for beside the audio.
 
     Raises `LessonError` if the lesson cannot make the card the design calls
     for, which a lesson whose dialogue carries none of its Key Vocabulary
     cannot: a note with nothing blanked looks complete in the collection and
     asks the learner nothing.
     """
-    lesson = read_markdown(lesson_markdown(lesson_dir))
+    lesson = read_markdown(markdown)
     audio = dialogue_audio(lesson_dir)
     blanked = blank(lesson.dialogue, lesson.key_vocabulary)
     if not blanked.blanks:
@@ -178,6 +183,37 @@ def build_note(lesson_dir: Path, *, transcribe: Transcriber) -> Note:
         unmatched_terms=blanked.unmatched,
         untranscribed_terms=untranscribed,
     )
+
+
+def note_json(note: Note) -> str:
+    """The note written out as a document for a person to read.
+
+    Over as many lines as it takes, and in UTF-8 rather than in escapes,
+    because what the note carries -- the IPA above all -- is there to be read.
+    """
+    return json.dumps(note.as_json(), ensure_ascii=False, indent=2) + "\n"
+
+
+def write_note(note: Note, build_dir: Path) -> Path:
+    """Write the note into the lesson's build directory, and say where it went.
+
+    Beside the Markdown there rather than in the corpus, which is read where it
+    lies: the note is the tool's own file as the Markdown is, so it goes where
+    the Markdown goes. Named for the code the note is identified by, as the
+    Markdown is, and written beside the file it replaces rather than over it: a
+    run stopped in the middle of a write leaves the note it found where it was.
+
+    Raises `LessonError` if the file cannot be written, which is a lesson the
+    stage has nothing to show for rather than one it worked on.
+    """
+    path = build_dir / f"englishpod_{note.code}.json"
+    beside = path.with_name(path.name + ".writing")
+    try:
+        beside.write_text(note_json(note), encoding="utf-8")
+        beside.replace(path)
+    except OSError as error:
+        raise LessonError(f"cannot write {path}: {error.strerror}") from error
+    return path
 
 
 def phonetic_symbols(lesson: Lesson, transcribe: Transcriber) -> tuple[str, tuple[str, ...]]:

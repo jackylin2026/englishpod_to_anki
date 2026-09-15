@@ -11,9 +11,12 @@ it reads C0108, which is the disagreement the corpus really has.
 from __future__ import annotations
 
 import shutil
+from functools import partial
 from pathlib import Path
 
-from conftest import BATCH
+import pytest
+
+from conftest import BATCH, built_dir, markdown_file
 from stub_ocr import StubOcr
 
 MARKDOWN = "englishpod_D0108.md"
@@ -61,11 +64,22 @@ EXPECTED_SUPPLEMENTARY_VOCABULARY = [
 ]
 
 
-def preprocessed(lesson: Path, run_cli, *arguments: object) -> str:
-    """Run preprocess over the sample lesson and return the Markdown it wrote."""
+def preprocess(lesson: Path, run_cli, tmp_path: Path, *arguments: object) -> str:
+    """Run preprocess over a lesson and return the Markdown it wrote."""
     result = run_cli("preprocess", lesson, *arguments)
     assert result.returncode == 0, result.stderr
-    return (lesson / MARKDOWN).read_text(encoding="utf-8")
+    return markdown_file(lesson, tmp_path).read_text(encoding="utf-8")
+
+
+# The three a test's own lesson needs to find what was written, given once so
+# that every test below is about the Markdown rather than about where it is.
+#
+# A run is forced rather than left to find the Markdown a fixture begins with:
+# what these tests are about is what the stage writes from a PDF, and the few
+# that are about leaving an existing Markdown alone run the command themselves.
+@pytest.fixture
+def preprocessed(lesson: Path, run_cli, tmp_path: Path):
+    return partial(preprocess, lesson, run_cli, tmp_path, "--force")
 
 
 def section(markdown: str, heading: str) -> str:
@@ -81,35 +95,39 @@ def table(text: str) -> tuple[tuple[str, ...], list[tuple[str, ...]]]:
     return cells[0], cells[2:]
 
 
-def test_writes_a_markdown_file_beside_the_lesson_pdf(lesson: Path, run_cli) -> None:
-    preprocessed(lesson, run_cli)
+def test_writes_a_markdown_file_into_the_build_directory(
+    lesson: Path, run_cli, tmp_path: Path, preprocessed
+) -> None:
+    """Named for the code inside the lesson, in a directory named for the lesson."""
+    preprocessed()
 
-    assert (lesson / MARKDOWN).is_file()
-    # The lesson directory holds its PDF, its recordings and now its Markdown --
-    # the one file the run adds.
+    written = markdown_file(lesson, tmp_path)
+    assert written.name == "englishpod_C0108.md"
+    assert written.parent == tmp_path / "build" / "lesson"
+    # And nothing of the tool's is left in the corpus: the lesson holds what the
+    # corpus gave it, and no more.
     assert sorted(path.name for path in lesson.iterdir()) == [
-        "englishpod_D0108.md",
         "englishpod_D0108.pdf",
         "englishpod_D0108dg.mp3",
     ]
 
 
-def test_title_carries_the_code_printed_inside_the_pdf(lesson: Path, run_cli) -> None:
-    markdown = preprocessed(lesson, run_cli)
+def test_title_carries_the_code_printed_inside_the_pdf(lesson: Path, run_cli, preprocessed) -> None:
+    markdown = preprocessed()
 
     assert markdown.splitlines()[0] == "# C0108"
     # The code is not the one the filename suggests.
     assert "D0108" in (lesson / "englishpod_D0108.pdf").name
 
 
-def test_dialogue_keeps_its_speaker_labels_and_line_structure(lesson: Path, run_cli) -> None:
-    markdown = preprocessed(lesson, run_cli)
+def test_dialogue_keeps_its_speaker_labels_and_line_structure(lesson: Path, run_cli, preprocessed) -> None:
+    markdown = preprocessed()
 
     assert section(markdown, "Dialogue") == EXPECTED_DIALOGUE
 
 
-def test_key_and_supplementary_vocabulary_are_separate_tables(lesson: Path, run_cli) -> None:
-    markdown = preprocessed(lesson, run_cli)
+def test_key_and_supplementary_vocabulary_are_separate_tables(lesson: Path, run_cli, preprocessed) -> None:
+    markdown = preprocessed()
 
     key_header, key_rows = table(section(markdown, "Key Vocabulary"))
     supplementary_header, supplementary_rows = table(
@@ -123,7 +141,7 @@ def test_key_and_supplementary_vocabulary_are_separate_tables(lesson: Path, run_
 
 
 def test_a_table_printed_without_a_part_of_speech_keeps_its_definitions(
-    lesson: Path, run_cli
+    lesson: Path, run_cli, preprocessed
 ) -> None:
     """A column nothing is ever printed in leaves no gutter to find it by.
 
@@ -133,7 +151,7 @@ def test_a_table_printed_without_a_part_of_speech_keeps_its_definitions(
     part of speech and the definition column is left empty. Both tables of a
     lesson are printed on one grid, so the column comes back from the other.
     """
-    markdown = preprocessed(lesson, run_cli)
+    markdown = preprocessed()
 
     _, rows = table(section(markdown, "Supplementary Vocabulary"))
 
@@ -142,8 +160,8 @@ def test_a_table_printed_without_a_part_of_speech_keeps_its_definitions(
     assert all(not part_of_speech and definition for _, part_of_speech, definition in rows)
 
 
-def test_a_term_split_across_physical_lines_is_reassembled(lesson: Path, run_cli) -> None:
-    markdown = preprocessed(lesson, run_cli)
+def test_a_term_split_across_physical_lines_is_reassembled(lesson: Path, run_cli, preprocessed) -> None:
+    markdown = preprocessed()
     _, key_rows = table(section(markdown, "Key Vocabulary"))
     _, supplementary_rows = table(section(markdown, "Supplementary Vocabulary"))
     terms = [row[0] for row in key_rows + supplementary_rows]
@@ -158,14 +176,14 @@ def test_a_term_split_across_physical_lines_is_reassembled(lesson: Path, run_cli
     assert ("stockroom", "common noun, singular", "the room where goods are kept") in key_rows
 
 
-def test_a_wide_speaker_label_keeps_the_first_word_it_overlaps(lesson: Path, run_cli) -> None:
+def test_a_wide_speaker_label_keeps_the_first_word_it_overlaps(lesson: Path, run_cli, preprocessed) -> None:
     """`Veronica:` overruns the word after it, as lesson 0152's `Mary:` does."""
-    dialogue = section(preprocessed(lesson, run_cli), "Dialogue")
+    dialogue = section(preprocessed(), "Dialogue")
 
     assert "Veronica: I have told you twice already." in dialogue
 
 
-def test_a_label_printed_over_two_rows_is_one_label(lesson: Path, run_cli) -> None:
+def test_a_label_printed_over_two_rows_is_one_label(lesson: Path, run_cli, preprocessed) -> None:
     """`Airline` and `staff:` are one label, and the body begins after the first half.
 
     A label too long for the column it is printed in takes two rows, one word at
@@ -174,7 +192,7 @@ def test_a_label_printed_over_two_rows_is_one_label(lesson: Path, run_cli) -> No
     is what says the two halves are one label -- and the body broken at the
     first row's end heals across the second, as any broken word does.
     """
-    dialogue = section(preprocessed(lesson, run_cli), "Dialogue")
+    dialogue = section(preprocessed(), "Dialogue")
 
     assert (
         "\nAirline staff: I am sorry sir, we cannot wait any longer. "
@@ -183,10 +201,10 @@ def test_a_label_printed_over_two_rows_is_one_label(lesson: Path, run_cli) -> No
 
 
 def test_a_label_printed_over_two_rows_heals_the_word_it_broke(
-    lesson: Path, run_cli
+    lesson: Path, run_cli, preprocessed
 ) -> None:
     """`Sun-` and `day:` are `Sunday:`, as lesson 0319's `Older gentle-` / `man:` is."""
-    dialogue = section(preprocessed(lesson, run_cli), "Dialogue")
+    dialogue = section(preprocessed(), "Dialogue")
 
     assert (
         "\nSunday: The auditors arrive on Tuesday, and the stockroom "
@@ -194,63 +212,70 @@ def test_a_label_printed_over_two_rows_heals_the_word_it_broke(
     )
 
 
-def test_a_contraction_printed_as_two_runs_is_rejoined(lesson: Path, run_cli) -> None:
-    dialogue = section(preprocessed(lesson, run_cli), "Dialogue")
+def test_a_contraction_printed_as_two_runs_is_rejoined(lesson: Path, run_cli, preprocessed) -> None:
+    dialogue = section(preprocessed(), "Dialogue")
 
     assert "A: You’ve made your point." in dialogue
     assert " ’" not in dialogue
 
 
-def test_a_word_the_typesetter_broke_loses_its_hyphen(lesson: Path, run_cli) -> None:
+def test_a_word_the_typesetter_broke_loses_its_hyphen(lesson: Path, run_cli, preprocessed) -> None:
     """`immac-` and `ulate` are `immaculate`; the dictionary knows the whole word."""
-    dialogue = section(preprocessed(lesson, run_cli), "Dialogue")
+    dialogue = section(preprocessed(), "Dialogue")
 
     assert "the stockroom immaculate before" in dialogue
     assert "immac-" not in dialogue
     assert "weeks’ vacation left" in dialogue
 
 
-def test_a_hyphen_the_author_typed_is_kept(lesson: Path, run_cli) -> None:
+def test_a_hyphen_the_author_typed_is_kept(lesson: Path, run_cli, preprocessed) -> None:
     """`entrylevel` is not a word, so the hyphen in `entry-level` is the author's."""
-    dialogue = section(preprocessed(lesson, run_cli), "Dialogue")
+    dialogue = section(preprocessed(), "Dialogue")
 
     assert "hire at entry-level for this role" in dialogue
 
 
-def test_a_possessive_apostrophe_does_not_swallow_the_next_word(lesson: Path, run_cli) -> None:
+def test_a_possessive_apostrophe_does_not_swallow_the_next_word(lesson: Path, run_cli, preprocessed) -> None:
     """`weeks’` ends in an apostrophe but is finished; it is not a cut contraction."""
-    dialogue = section(preprocessed(lesson, run_cli), "Dialogue")
+    dialogue = section(preprocessed(), "Dialogue")
 
     assert "two weeks’ vacation" in dialogue
     assert "weeks’v" not in dialogue
 
 
-def test_a_lesson_pdf_with_no_text_layer_is_reported(scanned_lesson: Path, run_cli) -> None:
+def test_a_lesson_pdf_with_no_text_layer_is_reported(
+    scanned_lesson: Path, run_cli, tmp_path: Path
+) -> None:
     result = run_cli("preprocess", scanned_lesson)
 
     assert result.returncode == 1
     assert "no text layer" in result.stderr
-    assert not (scanned_lesson / "englishpod_C0109.md").exists()
+    assert not built_dir(scanned_lesson, tmp_path).exists()
 
 
 def test_an_existing_markdown_file_is_left_untouched_and_reported(
-    lesson: Path, run_cli
+    lesson: Path, run_cli, tmp_path: Path
 ) -> None:
-    hand_corrected = lesson / MARKDOWN
+    hand_corrected = built_dir(lesson, tmp_path) / "englishpod_C0108.md"
+    hand_corrected.parent.mkdir(parents=True)
     hand_corrected.write_text("# C0108\n\nmy own correction\n", encoding="utf-8")
 
     result = run_cli("preprocess", lesson)
 
     assert result.returncode == 0
     assert hand_corrected.read_text(encoding="utf-8") == "# C0108\n\nmy own correction\n"
-    assert MARKDOWN in result.stdout
+    assert hand_corrected.name in result.stdout
     assert "already exists" in result.stdout
 
 
-def test_force_regenerates_an_existing_markdown_file(lesson: Path, run_cli) -> None:
-    (lesson / MARKDOWN).write_text("# C0108\n\nmy own correction\n", encoding="utf-8")
+def test_force_regenerates_an_existing_markdown_file(
+    lesson: Path, run_cli, tmp_path: Path
+) -> None:
+    hand_corrected = built_dir(lesson, tmp_path) / "englishpod_C0108.md"
+    hand_corrected.parent.mkdir(parents=True)
+    hand_corrected.write_text("# C0108\n\nmy own correction\n", encoding="utf-8")
 
-    markdown = preprocessed(lesson, run_cli, "--force")
+    markdown = preprocess(lesson, run_cli, tmp_path, "--force")
 
     assert markdown.startswith("# C0108\n")
     assert "my own correction" not in markdown
@@ -281,21 +306,20 @@ def test_a_pdf_that_cannot_be_read_is_reported(tmp_path: Path, run_cli) -> None:
 
 
 def test_a_lesson_holding_an_introduction_sheet_is_read_from_the_pdf_beside_it(
-    corpus: Path, run_cli
+    corpus: Path, run_cli, tmp_path: Path
 ) -> None:
     """Above 250 the corpus keeps an introduction sheet where a lesson PDF goes.
 
     The lesson itself is in the batch's PDF one directory up: a document holding
     ten of them, each beginning at the row that prints its code. The Markdown the
-    stage writes lands in the lesson's own directory, named for the code it read.
+    stage writes lands in the build directory, named for the code it read.
     """
     lesson = corpus / BATCH / "0110"
-    (lesson / "englishpod_B0110.md").unlink()
 
-    result = run_cli("preprocess", lesson)
+    result = run_cli("preprocess", lesson, "--force")
 
     assert result.returncode == 0, result.stderr
-    written = lesson / "englishpod_C0110.md"
+    written = built_dir(lesson, tmp_path) / "englishpod_C0110.md"
     assert written.is_file()
     markdown = written.read_text(encoding="utf-8")
     assert markdown.startswith("# C0110\n")
@@ -306,7 +330,7 @@ def test_a_lesson_holding_an_introduction_sheet_is_read_from_the_pdf_beside_it(
 
 
 def test_a_table_set_one_row_to_a_term_reads_every_row_as_a_term(
-    corpus: Path, run_cli
+    corpus: Path, run_cli, tmp_path: Path
 ) -> None:
     """Lesson 0096's Supplementary Vocabulary is set that way: evenly, one row to a term.
 
@@ -316,12 +340,11 @@ def test_a_table_set_one_row_to_a_term_reads_every_row_as_a_term(
     whole table into a single term whose cells hold every term's words at once.
     """
     lesson = corpus / BATCH / "0111"
-    (lesson / "englishpod_F0111.md").unlink()
 
-    result = run_cli("preprocess", lesson)
+    result = run_cli("preprocess", lesson, "--force")
 
     assert result.returncode == 0, result.stderr
-    markdown = (lesson / "englishpod_C0111.md").read_text(encoding="utf-8")
+    markdown = (built_dir(lesson, tmp_path) / "englishpod_C0111.md").read_text(encoding="utf-8")
     _, rows = table(section(markdown, "Supplementary Vocabulary"))
 
     assert rows == [
@@ -332,7 +355,7 @@ def test_a_table_set_one_row_to_a_term_reads_every_row_as_a_term(
 
 
 def test_a_title_printed_over_two_lines_does_not_leak_into_the_lesson_before(
-    corpus: Path, run_cli
+    corpus: Path, run_cli, tmp_path: Path
 ) -> None:
     """A lesson begins at its title, not at the line carrying its code.
 
@@ -343,9 +366,8 @@ def test_a_title_printed_over_two_lines_does_not_leak_into_the_lesson_before(
     it: the lesson before would come out with one column instead of three.
     """
     lesson = corpus / BATCH / "0110"
-    (lesson / "englishpod_B0110.md").unlink()
-    assert run_cli("preprocess", lesson).returncode == 0
-    markdown = (lesson / "englishpod_C0110.md").read_text(encoding="utf-8")
+    assert run_cli("preprocess", lesson, "--force").returncode == 0
+    markdown = (built_dir(lesson, tmp_path) / "englishpod_C0110.md").read_text(encoding="utf-8")
 
     supplementary = section(markdown, "Supplementary Vocabulary")
     rows = [line for line in supplementary.splitlines() if line.startswith("|")]
@@ -356,23 +378,28 @@ def test_a_title_printed_over_two_lines_does_not_leak_into_the_lesson_before(
     assert "Daily Life" not in markdown
 
 
-def test_force_regenerates_in_place_rather_than_beside_a_renamed_markdown(
-    lesson: Path, run_cli
+def test_force_regenerates_the_file_the_code_names_rather_than_beside_it(
+    lesson: Path, run_cli, tmp_path: Path
 ) -> None:
-    """A lesson directory holds one Markdown, whatever its owner called it."""
-    corrected = lesson / "my-own-notes.md"
+    """A lesson has one Markdown, and a run writes it to the one place."""
+    corrected = tmp_path / "build" / "lesson" / "englishpod_C0108.md"
+    corrected.parent.mkdir(parents=True)
     corrected.write_text("# C0108\n\nmy own correction\n", encoding="utf-8")
 
     result = run_cli("preprocess", lesson, "--force")
 
     assert result.returncode == 0, result.stderr
-    assert corrected.read_text(encoding="utf-8").startswith("# C0108\n")
-    assert "my own correction" not in corrected.read_text(encoding="utf-8")
+    written = markdown_file(lesson, tmp_path)
+    assert written == corrected
+    assert written.read_text(encoding="utf-8").startswith("# C0108\n")
+    assert "my own correction" not in written.read_text(encoding="utf-8")
+    # And no second file was made wherever the markdown might have been thought
+    # to live: the corpus is not written into at all.
     assert not (lesson / MARKDOWN).exists()
 
 
 def test_a_scanned_pdf_is_not_looked_for_beside_the_lesson(
-    corpus: Path, run_cli, scanned_lesson: Path
+    corpus: Path, run_cli, tmp_path: Path, scanned_lesson: Path
 ) -> None:
     """A scan wants the OCR pass, and is not sent looking for another source.
 
@@ -380,19 +407,20 @@ def test_a_scanned_pdf_is_not_looked_for_beside_the_lesson(
     PDF; a page of pictures is a different problem with a different answer.
     """
     lesson = corpus / BATCH / "0110"
-    (lesson / "englishpod_B0110.md").unlink()
     shutil.copy(scanned_lesson / "englishpod_C0109.pdf", lesson / "englishpod_C0110.pdf")
     (lesson / "EnglishPod.Intro.0110.pdf").unlink()
 
-    result = run_cli("preprocess", lesson)
+    result = run_cli("preprocess", lesson, "--force")
 
     assert result.returncode == 1
     assert "has no text layer" in result.stderr
-    assert not list(lesson.glob("*.md"))
+    # Nothing was read out of the page, so the Markdown the lesson already had
+    # is left exactly as it was.
+    assert markdown_file(lesson, tmp_path).read_text(encoding="utf-8").startswith("# B0110\n")
 
 
 def test_an_unreadable_pdf_beside_the_lesson_is_passed_over(
-    corpus: Path, run_cli
+    corpus: Path, run_cli, tmp_path: Path
 ) -> None:
     """One file in the batch that cannot be read must not cost the lesson.
 
@@ -401,66 +429,62 @@ def test_an_unreadable_pdf_beside_the_lesson_is_passed_over(
     is further down the list.
     """
     lesson = corpus / BATCH / "0110"
-    (lesson / "englishpod_B0110.md").unlink()
     (corpus / BATCH / "0077 - broken.pdf").write_bytes(b"not a PDF at all")
 
-    result = run_cli("preprocess", lesson)
+    result = run_cli("preprocess", lesson, "--force")
 
     assert result.returncode == 0, result.stderr
-    assert (lesson / "englishpod_C0110.md").is_file()
+    assert (built_dir(lesson, tmp_path) / "englishpod_C0110.md").is_file()
 
 
 def test_a_lesson_is_read_from_whichever_pdf_beside_it_carries_it(
-    corpus: Path, run_cli
+    corpus: Path, run_cli, tmp_path: Path
 ) -> None:
     """A batch may keep a per-lesson PDF as well as the one holding all of them."""
     lesson = corpus / BATCH / "0110"
-    (lesson / "englishpod_B0110.md").unlink()
     shutil.copy(corpus / BATCH / "0110-0111.pdf", corpus / BATCH / "aaa-first.pdf")
 
-    result = run_cli("preprocess", lesson)
+    result = run_cli("preprocess", lesson, "--force")
 
     assert result.returncode == 0, result.stderr
-    written = lesson / "englishpod_C0110.md"
+    written = built_dir(lesson, tmp_path) / "englishpod_C0110.md"
     assert written.is_file()
     assert "A: Is the bicycle in the window still for sale?" in written.read_text(
         encoding="utf-8"
     )
 
 
-def test_force_keeps_the_name_a_recovered_lessons_markdown_already_has(
-    corpus: Path, run_cli
+def test_force_writes_the_one_file_a_recovered_lesson_has(
+    corpus: Path, run_cli, tmp_path: Path
 ) -> None:
-    """A lesson read from the batch writes to the Markdown it already holds."""
+    """A lesson read out of the batch is written to the one place, and named for it."""
     lesson = corpus / BATCH / "0110"
-    (lesson / "englishpod_B0110.md").unlink()
-    corrected = lesson / "my-own-notes.md"
-    corrected.write_text("# C0110\n\nmy own correction\n", encoding="utf-8")
 
     result = run_cli("preprocess", lesson, "--force")
 
     assert result.returncode == 0, result.stderr
-    assert corrected.read_text(encoding="utf-8").startswith("# C0110\n")
-    assert "my own correction" not in corrected.read_text(encoding="utf-8")
-    assert not (lesson / "englishpod_C0110.md").exists()
+    written = built_dir(lesson, tmp_path) / "englishpod_C0110.md"
+    assert written.read_text(encoding="utf-8").startswith("# C0110\n")
+    assert "A: Is the bicycle in the window still for sale?" in written.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_a_directory_not_named_by_a_number_is_reported_as_it_was(
-    corpus: Path, run_cli
+    corpus: Path, run_cli, tmp_path: Path
 ) -> None:
     """The fallback needs a number to look for; without one, nothing changes."""
     lesson = corpus / BATCH / "extras"
     shutil.copytree(corpus / BATCH / "0110", lesson)
-    (lesson / "englishpod_B0110.md").unlink()
 
-    result = run_cli("preprocess", lesson)
+    result = run_cli("preprocess", lesson, "--force")
 
     assert result.returncode == 1
     assert "carries no lesson code" in result.stderr
-    assert not list(lesson.glob("*.md"))
+    assert not built_dir(lesson, tmp_path).exists()
 
 
-def test_a_lesson_no_pdf_beside_it_carries_is_reported(corpus: Path, run_cli) -> None:
+def test_a_lesson_no_pdf_beside_it_carries_is_reported(corpus: Path, run_cli, tmp_path: Path) -> None:
     """The lesson is looked for beside it, by the number its directory is named.
 
     A directory whose number nothing beside it carries is reported with the
@@ -468,14 +492,13 @@ def test_a_lesson_no_pdf_beside_it_carries_is_reported(corpus: Path, run_cli) ->
     """
     lesson = corpus / BATCH / "0199"
     shutil.copytree(corpus / BATCH / "0110", lesson)
-    (lesson / "englishpod_B0110.md").unlink()
 
-    result = run_cli("preprocess", lesson)
+    result = run_cli("preprocess", lesson, "--force")
 
     assert result.returncode == 1
     assert "carries no lesson code" in result.stderr
     assert "carries lesson 0199" in result.stderr
-    assert not list(lesson.glob("*.md"))
+    assert not built_dir(lesson, tmp_path).exists()
 
 
 def test_a_directory_holding_too_many_pdfs_names_a_few_of_them(
@@ -585,7 +608,8 @@ def test_a_lesson_with_no_text_layer_is_read_out_of_its_pictures(
         )
 
         assert result.returncode == 0, result.stderr
-        assert (scanned_lesson / SCANNED).read_text(encoding="utf-8") == EXPECTED_SCAN
+        written = built_dir(scanned_lesson, tmp_path) / SCANNED
+        assert written.read_text(encoding="utf-8") == EXPECTED_SCAN
         assert len(service.asked_for("/rest/2.0/ocr/v1/accurate")) == 1
     finally:
         service.close()
@@ -603,7 +627,7 @@ def test_a_missing_credentials_file_is_reported_before_anything_is_read(
         assert ".env" in result.stderr
         assert KEY in result.stderr and SECRET in result.stderr
         assert service.requests == []
-        assert not (scanned_lesson / SCANNED).exists()
+        assert not built_dir(scanned_lesson, tmp_path).exists()
     finally:
         service.close()
 
@@ -649,7 +673,7 @@ def test_a_page_the_service_will_not_read_is_reported(
 
         assert result.returncode == 1
         assert "Access token invalid" in result.stderr
-        assert not (scanned_lesson / SCANNED).exists()
+        assert not built_dir(scanned_lesson, tmp_path).exists()
     finally:
         service.close()
 
@@ -670,7 +694,8 @@ def test_the_ocr_pass_leaves_an_existing_markdown_alone(
     scanned_lesson: Path, run_cli, tmp_path: Path
 ) -> None:
     """A corrected Markdown is not re-read over by a pass that costs money."""
-    mine = scanned_lesson / SCANNED
+    mine = built_dir(scanned_lesson, tmp_path) / SCANNED
+    mine.parent.mkdir(parents=True, exist_ok=True)
     mine.write_text("# C0109\n", encoding="utf-8")
     service = StubOcr(PAGE)
     try:

@@ -33,6 +33,8 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import pdfplumber
+
+from .paths import ENV, settings
 from pdfplumber.utils.exceptions import PdfminerException
 
 from .layout import Row, Seen, page_rows
@@ -43,10 +45,10 @@ BASE = "https://aip.baidubce.com"
 TOKEN = "/oauth/2.0/token"
 READ = "/rest/2.0/ocr/v1/accurate"
 
-# The two values a `.env` file carries, and the file the tool looks for them in.
+# The two values the OCR pass needs out of the `.env` file, which is the same one
+# the build directory is read from.
 API_KEY = "BAIDU_OCR_API_KEY"
 SECRET_KEY = "BAIDU_OCR_SECRET_KEY"
-ENV = ".env"
 
 # A page is rendered at 300 dpi before it is sent: fine enough for the small
 # print of a vocabulary table to come back whole, and inside the service's own
@@ -92,22 +94,11 @@ def credentials(directory: Path | None = None) -> tuple[str, str]:
         ) from error
     except OSError as error:
         raise OcrError(f"cannot read {path}: {error}") from error
-    settings = _settings(text)
-    missing = [name for name in (API_KEY, SECRET_KEY) if not settings.get(name)]
+    read = settings(text)
+    missing = [name for name in (API_KEY, SECRET_KEY) if not read.get(name)]
     if missing:
         raise OcrError(f"{path} carries no {', '.join(missing)}; the OCR pass needs both")
-    return settings[API_KEY], settings[SECRET_KEY]
-
-
-def _settings(text: str) -> dict[str, str]:
-    """A `.env` file's settings, as its `NAME=value` lines read them."""
-    settings: dict[str, str] = {}
-    for line in text.splitlines():
-        name, equals, value = line.partition("=")
-        if not equals or name.strip().startswith("#"):
-            continue
-        settings[name.strip()] = value.strip().strip('"').strip("'")
-    return settings
+    return read[API_KEY], read[SECRET_KEY]
 
 
 class Baidu:

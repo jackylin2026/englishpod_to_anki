@@ -5,7 +5,7 @@ Turns a downloaded EnglishPod corpus into Anki cards for a single learner's coll
 ## Language
 
 **Corpus**:
-The downloaded EnglishPod material, read where it lies and never reorganised. It carries no index of its lessons: the way it nests them is the map, and pointing a stage at the corpus directory is what runs it over all of them at once.
+The downloaded EnglishPod material, read where it lies and never reorganised — nothing the tool makes is written into it. It carries no index of its lessons: the way it nests them is the map, and pointing a stage at the corpus directory is what runs it over all of them at once.
 _Avoid_: dataset, source tree
 
 **Lesson**:
@@ -13,8 +13,12 @@ One EnglishPod episode.
 _Avoid_: episode, unit, track
 
 **Lesson directory**:
-The directory the corpus keeps one lesson in: it holds that lesson's files, and no lesson of its own. Both facts are needed, because the corpus also keeps batch directories holding ten lessons *and* a combined PDF of those ten. It holds the lesson's own Markdown, and may hold the print transcript's file for the lesson beside it.
+The directory the corpus keeps one lesson in: it holds that lesson's files, and no lesson of its own. Both facts are needed, because the corpus also keeps batch directories holding ten lessons *and* a combined PDF of those ten. It holds what the corpus gave it — the lesson's PDF and its recordings — and none of the tool's files: those go to the build directory, in a subdirectory named for this one.
 _Avoid_: lesson folder, lesson path
+
+**Build directory**:
+The one directory the tool writes into, wherever a run was pointed: a subdirectory to a lesson, named for that lesson's own directory in the corpus, holding the lesson's Markdown, the note file built from it, and the print transcript's file for it. It is named in `ENGLISHPOD_BUILD_DIR`, in the environment or in the `.env`, and is a `build` under the directory the tool was run from when nothing says otherwise. It holds no recording: the audio stays in the corpus and the note names it there.
+_Avoid_: output directory, destination directory, artifacts
 
 **Batch directory**:
 The directory the corpus nests its later lessons by the ten in. It holds lessons and the combined PDF of them, and is a container rather than a lesson: what it holds is the lessons, and the PDF beside them belongs to no one lesson.
@@ -49,7 +53,7 @@ The condensed corpus-wide PDF containing dialogues for most lessons, and no voca
 _Avoid_: the print PDF, the condensed PDF
 
 **Transcript file**:
-The print transcript's version of one lesson's dialogue, written beside the lesson's Markdown for a lesson the print covers and holding the `## Dialogue` section and nothing else. It is not the lesson's Markdown — that is the one file in the directory the lesson's own document was read into — and it names no lesson code, so nothing reads it as a lesson.
+The print transcript's version of one lesson's dialogue, written in the lesson's build directory beside its Markdown for a lesson the print covers, and holding the `## Dialogue` section and nothing else. It is not the lesson's Markdown — that is the one file in the directory the lesson's own document was read into — and it names no lesson code, so nothing reads it as a lesson.
 _Avoid_: transcription file, slice, dialogue file
 
 **Dialogue**:
@@ -100,6 +104,10 @@ _Avoid_: flashcard, card set
 The six fields and the one card a lesson card is made of: the front rendering the dialogue, the back rendering it filled, then the phonetic transcriptions, the glossary, `Synonym`, `Word Family` and the dialogue audio. A turn is one line however many lines the page printed it over, and the blank line between turns is the only break it carries. A note type in the collection that does not carry it is refused rather than written into.
 _Avoid_: template, model, layout
 
+**Note file**:
+The JSON document `build` writes in the lesson's build directory, beside the Markdown it was built from and holding the note the lesson produces — its identity, its fields and the audio it plays. Named for the code the note is identified by (`englishpod_C0108.json`), because the note is found in a collection by that code rather than by the directory it was built in. It is the stage's whole product, written afresh on every run and read back by nothing: a lesson whose note file cannot be written is not a lesson `build` built.
+_Avoid_: build output, notes.jsonl, export
+
 **Note identity**:
 The tag `englishpod::C0108` a note is born with, derived from its lesson code, so that a later run finds the note an earlier run made.
 _Avoid_: note id, guid, key
@@ -113,5 +121,5 @@ Refreshing the fields of a lesson's existing note, so that the card keeps the sc
 _Avoid_: update, re-import, overwrite
 
 **Skipped lesson**:
-A lesson a stage declined to work on, named with the reason at the end of a run over the corpus. A lesson is skipped rather than built when it is missing its dialogue audio or its Markdown, when its PDF or Markdown cannot be read, or when it has no vocabulary to draw blanks from.
+A lesson a stage declined to work on, named with the reason at the end of a run over the corpus. A lesson is skipped rather than built when it is missing its dialogue audio or its Markdown, when its PDF or Markdown cannot be read, when its Markdown has not been written into the build directory yet, when it has no vocabulary to draw blanks from, or when the note file that would hold its card cannot be written.
 _Avoid_: failed lesson, error

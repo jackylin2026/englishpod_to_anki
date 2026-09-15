@@ -18,8 +18,8 @@ corpus.
 
 | Stage | Does |
 | --- | --- |
-| `preprocess` | Reads a lesson PDF and writes a Markdown file beside it |
-| `build` | Reads a lesson's Markdown and produces the note it would create, without touching Anki |
+| `preprocess` | Reads a lesson PDF and writes a Markdown file into the build directory |
+| `build` | Reads a lesson's Markdown and writes the note it would create as JSON beside it, without touching Anki |
 | `import` | Sends built notes to a running Anki through AnkiConnect, asking about the lessons already there |
 
 The Markdown sits between extraction and card-building deliberately: it is where
@@ -38,10 +38,35 @@ englishpod-to-anki build /path/to/corpus
 
 The corpus's own folder layout is the list of lessons, so there is nothing to
 maintain beside it. A lesson is a directory holding a lesson's files — the
-lesson PDF, its recordings, its Markdown — and a directory holding lessons of
-its own is a container rather than a lesson: the corpus nests its later lessons
-ten to a directory, and those directories carry a combined PDF of the ten
-beside them.
+lesson PDF and its recordings — and a directory holding lessons of its own is a
+container rather than a lesson: the corpus nests its later lessons ten to a
+directory, and those directories carry a combined PDF of the ten beside them.
+
+Nothing of the tool's is written into the corpus. The Markdown it makes, the
+note it builds from that, and the print transcript's version of a lesson's
+dialogue all go to a **build directory**: one subdirectory to a lesson, named
+for the lesson's own directory, so that the corpus is as it was downloaded and
+the tool's own files are all in one place.
+
+Where that directory is comes from the run: `ENGLISHPOD_BUILD_DIR` in the
+environment, or that name written in the `.env`, or a `build` under the
+directory the tool was run from. The recordings are not copied — the build
+directory holds text alone, and a note names the recording where the corpus
+keeps it.
+
+```
+# .env
+ENGLISHPOD_BUILD_DIR=/path/to/build
+```
+
+A corpus preprocessed by an older version holds its Markdown beside its PDFs,
+where nothing looks for it now. `scripts/move_to_build.py` moves them, keeping
+each file's name unless it is one the tool would name after the code:
+
+```
+python scripts/move_to_build.py --dry-run /path/to/corpus
+python scripts/move_to_build.py /path/to/corpus
+```
 
 A run over the corpus ends with a summary of the lessons it skipped, named with
 the reason each was given:
@@ -53,19 +78,21 @@ skipped:
 ```
 
 That is the whole corpus the tool was built against, measured from a fresh copy:
-296 of its 365 lessons come out as Markdown, and the 69 left are image-only
-scans that want the OCR pass — the lessons above 250 included, whose content
-comes out of their batch's combined PDF. A run over a corpus that already holds
+296 of its 365 lessons come out as Markdown — the lessons above 250 included,
+whose content comes out of their batch's combined PDF — and the 69 left are
+image-only scans that want the OCR pass. A run over a corpus that already holds
 Markdown counts the new files alone. The corpus's own `.englishpodignore` names
 its host-transcript directory, which is not a lesson and used to be reported as
 one.
 
 A lesson missing its dialogue audio, or one whose dialogue carries none of its
 Key Vocabulary to blank, is skipped rather than turned into a card that looks
-complete and isn't. One unreadable lesson never stops the run — a file that is
-not a readable PDF, a PDF with no text layer, a Markdown with no lesson code —
-but a run that worked on no lesson at all exits non-zero, so a script cannot
-mistake it for success.
+complete and isn't. So is a lesson whose Markdown is not in the build directory
+yet — a run made before `preprocess` reached it — and the reason it is given
+names the stage that would have written one. One unreadable lesson never stops
+the run — a file that is not a readable PDF, a PDF with no text layer, a
+Markdown with no lesson code — but a run that worked on no lesson at all exits
+non-zero, so a script cannot mistake it for success.
 
 ### Directories that are not lessons
 
@@ -89,7 +116,7 @@ depth — or its path from the corpus root; an absolute path that lands under th
 corpus is understood as the same thing, and a `#` opens a comment line (so a
 directory whose own name begins with `#` cannot be named here). Matching is
 exact: no globs, no prefixes, because a pattern that over-matches takes lessons
-out of every run without saying so. Three things follow from that, worth knowing
+out of every run without saying so. Four things follow from that, worth knowing
 before you edit the file:
 
 - Only the file at the directory you point the stage at is read. Pointing at one
@@ -114,20 +141,25 @@ englishpod-to-anki preprocess /path/to/corpus/英语博客100-150/0108
 englishpod-to-anki preprocess /path/to/corpus
 ```
 
-It writes `englishpod_D0108.md` beside `englishpod_D0108.pdf`. The file's title
-line carries the lesson code read from *inside* the PDF, which in a few cases
-disagrees with the filename.
+It writes the Markdown into the build directory, under a subdirectory named for
+the lesson's own directory in the corpus (`0108/englishpod_C0108.md` for
+`.../英语博客100-150/0108`). The file's title line, and its name, carry the
+lesson code read from *inside* the PDF, which in a few cases disagrees with the
+name of the lesson's directory.
 
 A lesson's PDF is not always the lesson's. Above lesson 250 the corpus keeps a
 one-page introduction sheet where a lesson PDF would be, and keeps the lessons
 themselves in the batch's combined PDF one directory up — one document holding
 the batch's lessons, each beginning at the row that prints its code.
-`preprocess` reads them out of it, and writes the Markdown into the lesson's own
-directory, named for the code it found there (`0251/englishpod_C0251.md`). A
-lesson whose number nothing beside it carries is skipped with that reason.
+`preprocess` reads them out of it, and writes the Markdown into the lesson's
+subdirectory in the build directory, named for the code it found there
+(`0251/englishpod_C0251.md`). A lesson whose number nothing beside it carries is
+skipped with that reason.
 
 An existing Markdown file is left alone, so a hand correction survives a re-run.
-Pass `--force` to regenerate it after a parser fix. A run over the corpus says
+Pass `--force` to regenerate it after a parser fix — and know that a forced run
+writes the file the code names, taking away one named for another code, so that
+a lesson keeps one Markdown either way. A run over the corpus says
 how many files it wrote and counts the ones it left as they were, rather than
 repeating the way to regenerate them for every lesson.
 
@@ -213,16 +245,16 @@ englishpod-to-anki preprocess /path/to/corpus --print-transcript "/path/to/Engli
 ```
 
 The print's version of a lesson's dialogue is written beside the lesson's own
-Markdown, as `englishpod_D0108.transcript.md` — a dialogue and nothing else, for
-reading next to the lesson's file. The two are then compared, and a lesson whose
-dialogue reads differently is named on stderr:
+Markdown in the build directory, as `englishpod_C0108.transcript.md` — a dialogue
+and nothing else, for reading next to the lesson's file. The two are then
+compared, and a lesson whose dialogue reads differently is named on stderr:
 
 ```
-C0108: the print transcript's dialogue differs from the lesson's; see /path/to/corpus/英语博客100-150/0108/englishpod_D0108.transcript.md
-preprocess: 365 lessons: 365 already had a Markdown file, 329 transcript files written, 32 of 329 disagreed with the print transcript, 0 skipped
+C0119: the print transcript's dialogue differs from the lesson's; see /path/to/build/0119/englishpod_C0119.transcript.md
+preprocess: 365 lessons: 365 already had a Markdown file, 329 transcript files written, 30 of 329 disagreed with the print transcript, 0 skipped
 ```
 
-It is a warning and nothing more. The lesson's Markdown, the file beside it and
+It is a warning and nothing more. The lesson's Markdown, the print's file and
 the card built from it are the lesson's own either way, and the run carries on: a
 parsing regression is something to look at rather than something the tool decides
 about. A lesson the print does not cover — lessons 331 onwards, and the one its
@@ -241,21 +273,26 @@ Markdown: `--force` is what asks for it again.
 
 ## Building a card
 
-Point `build` at a lesson directory holding its Markdown and its dialogue audio,
-or at the corpus directory:
+Point `build` at a lesson directory holding its dialogue audio, or at the corpus
+directory; the Markdown it reads is the one `preprocess` wrote into the lesson's
+build directory:
 
 ```
 englishpod-to-anki build /path/to/corpus/英语博客100-150/0108
-englishpod-to-anki build /path/to/corpus > notes.jsonl
+englishpod-to-anki build /path/to/corpus
 ```
 
-It prints the note it would create as JSON — the deck, the note type, the six
-fields, the audio, and the tag that identifies it — and touches no collection
-and no lesson, one JSON document per line for a run over the corpus. It does
-write what it learns about words: see [Phonetic
-transcriptions](#phonetic-transcriptions) below. The
-`Sentences` field holds the dialogue with every Key Vocabulary term it carries
-blanked out; `Words` holds both vocabulary tables as `term -> definition`. A
+It writes the note it would create as JSON — the deck, the note type, the six
+fields, the audio, and the tag that identifies it — and touches no collection.
+The document goes beside the lesson's Markdown, named for the lesson code the
+note is identified by: `englishpod_C0108.json` next to `englishpod_C0108.md`.
+The path it wrote is said on stdout, one line per lesson, so a run over the
+corpus names every file it leaves. Each run writes it afresh — the file is
+always the note the Markdown makes now, and nothing reads it back. It does
+write what it learns about words: see
+[Phonetic transcriptions](#phonetic-transcriptions) below. The `Sentences` field
+holds the dialogue with every Key Vocabulary term it carries blanked out;
+`Words` holds both vocabulary tables as `term -> definition`. A
 speaker's turn is one line, however many lines the page printed it over: what
 breaks the line is a speaker changing, and that break is a blank one.
 
@@ -294,7 +331,7 @@ words those two cannot answer, once for the whole corpus, and remembers the
 answers. What it will not do is treat a service's silence as an answer: a
 dictionary that cannot be reached is dropped for the rest of the run and said so
 once, and the words it would have answered are left blank and reported —
-`C0108: no transcription for goosebumps` — rather than written down as words
+`C0119: no transcription for goosebumps` — rather than written down as words
 nobody has. Only a dictionary that answered "no such word" settles a word that
 way. The build succeeds and the card is made either way.
 
@@ -389,7 +426,7 @@ reasons of its own still exits non-zero, because it did nothing.
 ```
 
 The tests run the tool as a subprocess and assert on what it produced — the
-Markdown, the emitted note, and the requests an import makes — never on its
+Markdown, the note file, and the requests an import makes — never on its
 internals. They need no network, no Anki and no OCR credentials: `import` is
 driven against `tests/stub_anki.py`, a stand-in AnkiConnect holding the notes a
 test puts in it and recording what it was asked to do — which is how a replace
@@ -417,7 +454,8 @@ ten-lesson kind beside them (drawn holding two lessons, the second beginning
 mid-page under a title wrapped over two lines), the introduction sheets the
 lessons above 250 keep in place of a lesson PDF, something that is not a lesson
 at all, a lesson missing its dialogue audio, and a lesson whose Markdown carries
-no code.
+no code. Its Markdowns start beside their PDFs and are moved into the build
+directory before a run, as the corpus's own were.
 
 ## Documentation
 

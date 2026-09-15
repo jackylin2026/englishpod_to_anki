@@ -4,11 +4,13 @@ The Markdown sits deliberately between extraction and card-building, so it is
 also the contract between them: preprocess writes it and build reads it, and
 neither stage reaches into the other. Reading a lesson back is therefore written
 beside the code that writes it, and both directions meet in one shape -- as does
-what a lesson directory has to hold for either stage to work on it.
+what a lesson has to have for either stage to work on it: a PDF and a dialogue
+recording of its own, and a Markdown in the build directory.
 
-Beside the lesson's own Markdown a lesson directory may hold the print
-transcript's version of the same dialogue, which is a Markdown too: it holds the
-`## Dialogue` section and nothing else, and is named for the file it sits beside.
+Beside the lesson's own Markdown -- in the build directory, where the tool keeps
+it -- a lesson may have the print transcript's version of the same dialogue,
+which is a Markdown too: it holds the `## Dialogue` section and nothing else, and
+is named for the file it sits beside.
 """
 
 from __future__ import annotations
@@ -29,19 +31,20 @@ TERM, PART_OF_SPEECH, DEFINITION = "term", "part of speech", "definition"
 ESCAPED_PIPE = "\\|"
 
 # What the print transcript's version of one lesson's dialogue is called beside
-# the lesson's own Markdown: `221.transcript.md` beside `221.md`. The name is how
-# the two are told apart -- a lesson directory holds one Markdown of the lesson's
-# and may hold the transcript's beside it, and nothing else a stage writes there
-# carries this name.
+# the lesson's own Markdown in the build directory: `englishpod_C0108.transcript.md`
+# beside `englishpod_C0108.md`. The name is how the two are told apart -- a
+# lesson has one Markdown of its own and may have the transcript's beside it,
+# and nothing else a stage writes there carries this name.
 TRANSCRIPT = ".transcript.md"
 
 
 class LessonError(Exception):
     """The lesson is not one the stages can work with, so nothing was done.
 
-    A lesson directory holding no PDF, two of them, or no Markdown; a lesson
-    whose code cannot be found; a Markdown file not in the shared form. Every
-    stage reports these the same way, and none of them is a crash.
+    A lesson directory holding no PDF or two of them, or no dialogue audio; a
+    lesson with no Markdown in the build directory; a lesson whose code cannot be
+    found; a Markdown file not in the shared form. Every stage reports these the
+    same way, and none of them is a crash.
     """
 
 
@@ -82,7 +85,7 @@ NAMED = 3
 
 
 def lesson_files(directory: Path, name: str) -> list[Path]:
-    """Every file of one kind a lesson directory holds, in name order.
+    """Every file of one kind a directory holds, in name order.
 
     None of them is an answer a caller may want: a stage looking for the
     Markdown a lesson already has asks what is there, and takes the one the
@@ -94,13 +97,14 @@ def lesson_files(directory: Path, name: str) -> list[Path]:
 
 
 def lesson_file(directory: Path, name: str, *, what: str) -> Path:
-    """The one file of its kind a lesson directory holds.
+    """The one file of its kind a directory holds.
 
-    A lesson directory holds one PDF, one Markdown file and one dialogue
-    recording. Two of any of them is a directory the tool declines to guess
-    about, rather than one it picks a file out of -- and the Markdown's one is
-    the lesson's own, which is what `lesson_markdown` tells from the print
-    transcript's file for the lesson sitting beside it.
+    A lesson holds one PDF, one dialogue recording and one Markdown of its own,
+    the last of them kept in the build directory. Two of any of them is a
+    directory the tool declines to guess about, rather than one it picks a file
+    out of -- and the Markdown's one is the lesson's own, which is what
+    `lesson_markdown` tells from the print transcript's file for the lesson
+    sitting beside it.
     """
     if not directory.is_dir():
         raise LessonError(f"{directory} is not a directory")
@@ -120,14 +124,15 @@ def _named(files: Sequence[Path]) -> str:
 
 
 def lesson_markdown(directory: Path) -> Path:
-    """The one Markdown a lesson directory holds of the lesson's own.
+    """The one Markdown a directory holds of the lesson's own.
 
-    Beside it the directory may hold the print transcript's version of the same
-    dialogue, which is told apart by its name rather than by what it holds: a
-    Markdown that carries no lesson code yet -- written by hand, or read out of a
-    document that printed none -- is the lesson's as surely as any other, and is
-    reported for what is wrong with it rather than counted as a file that is not
-    there.
+    The directory asked is the lesson's build directory, since that is where the
+    tool keeps a lesson's Markdown. Beside it the directory may hold the print
+    transcript's version of the same dialogue, which is told apart by its name
+    rather than by what it holds: a Markdown that carries no lesson code yet --
+    written by hand, or read out of a document that printed none -- is the
+    lesson's as surely as any other, and is reported for what is wrong with it
+    rather than counted as a file that is not there.
     """
     if not directory.is_dir():
         raise LessonError(f"{directory} is not a directory")
@@ -140,7 +145,7 @@ def lesson_markdown(directory: Path) -> Path:
 
 
 def lesson_markdowns(directory: Path) -> list[Path]:
-    """The Markdown files a lesson directory holds of the lesson's own."""
+    """The Markdown files a directory holds of the lesson's own."""
     return [
         path
         for path in lesson_files(directory, "*.md")
